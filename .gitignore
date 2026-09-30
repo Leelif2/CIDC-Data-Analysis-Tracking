@@ -1,1 +1,3 @@
 node_modules/
+# Staff password hashes kept only on the admin computer
+*.local.json
