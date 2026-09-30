@@ -63,3 +63,15 @@ select, option { font-size: 10px !important; }
 }
 .consult-form label { font-size: 14px !important; margin-bottom: 6px !important; }
 .consult-form input, .consult-form select, .consult-form textarea { font-size: 15px !important; padding: 10px 12px !important; border-radius: 12px !important; }
+.session-action { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 800; padding: 6px 10px; border-radius: 10px; transition: background-color 0.2s ease; }
+.session-input {
+    width: 100%;
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 16px;
+    font-weight: 500;
+    color: #0f172a;
+}
+.session-input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }

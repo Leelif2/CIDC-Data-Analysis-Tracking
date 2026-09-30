@@ -148,8 +148,11 @@ function consultationStats(records) {
     };
 }
 
+// _idx(숨김 속성) = window.dbState.consultationData 안의 원래 위치 → 화면에서 수정·삭제할 때 사용
 function getConsultationRecords() {
-    return normalizeConsultationData(window.dbState.consultationData || []);
+    return (window.dbState.consultationData || [])
+        .map((raw, i) => Object.defineProperty(normalizeConsultationRecord(raw), '_idx', { value: i }))
+        .filter(r => r.sessionDate || r.student || r.umail || r.review);
 }
 
 // 실제 기록 입력용 엑셀 양식 (헤더 + 예시 1행)

@@ -2,6 +2,8 @@
 // 데이터는 Excel List > Consultation Sheet (window.dbState.consultationData) 그대로 사용
 let selectedStudentKey = null;
 let activeCategory = 'all';
+// Session History 편집 상태: 수정 중인 기록의 _idx, 새 기록 추가 중이면 'new', 아니면 null
+let editingSessionIdx = null;
 
 const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // 학생 구분: uMail 우선 (동명이인 대비), uMail이 없는 기록만 이름으로 묶음
@@ -91,7 +93,8 @@ function renderConsultationPage() {
     const inCategory = activeCategory === 'all' ? searched : searched.filter(r => getConsultCategory(r).id === activeCategory);
     const activeLabel = activeCategory === 'all' ? '' : categoryGroups.find(g => g.cat.id === activeCategory).cat.label;
     renderStudentList(groupByStudent(inCategory), activeLabel);
-    renderStudentDetail(all);
+    // 편집 중에는 검색 입력 등으로 상세 패널이 다시 그려져 입력 내용이 사라지지 않도록 유지
+    if (editingSessionIdx === null) renderStudentDetail(all);
 }
 
 function renderSummary(all) {
@@ -173,7 +176,10 @@ function renderStudentDetail(all) {
                     ${student.aliases.length ? `<p class="text-[14px] text-amber-700 font-bold">Also recorded as: ${escapeHtml(student.aliases.join(', '))}</p>` : ''}
                 </div>
             </div>
-            <button onclick="selectStudent(null)" class="shrink-0 w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-[16px]" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            <div class="shrink-0 flex items-center gap-2">
+                <button onclick="startNewSession()" class="consult-btn bg-emerald-600 hover:bg-emerald-500 text-white !text-[14px] !px-4 !py-2.5"><i class="fa-solid fa-plus"></i> Add Session</button>
+                <button onclick="selectStudent(null)" class="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-[16px]" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
         </div>
 
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
@@ -185,13 +191,14 @@ function renderStudentDetail(all) {
         ${counselors.length ? `<p class="text-[15px] text-slate-600 font-medium mt-4"><i class="fa-solid fa-user-tie mr-2 text-slate-400"></i>Counselor${counselors.length > 1 ? 's' : ''}: <b class="text-slate-800">${escapeHtml(counselors.join(', '))}</b></p>` : ''}
 
         <div class="mt-6 space-y-6">
+            ${editingSessionIdx === 'new' ? `<div><h4 class="text-[15px] font-black text-emerald-700 mb-3"><i class="fa-solid fa-plus-circle mr-2"></i>New Session</h4>${sessionFormHtml({ student: student.name, umail: student.umail, sessionDate: toIsoDate(new Date()), counselor: student.last.counselor }, true)}</div>` : ''}
             ${groupByCategory(sessions).map(g => `
                 <div>
                     <div class="flex items-center gap-2 mb-3">
                         ${categoryChipHtml(g.cat)}
                         <span class="text-[14px] font-bold text-slate-500">${g.sessions.length} session${g.sessions.length === 1 ? '' : 's'}</span>
                     </div>
-                    <div class="space-y-3">${g.sessions.map(sessionCardHtml).join('')}</div>
+                    <div class="space-y-3">${g.sessions.map(x => x._idx === editingSessionIdx ? sessionFormHtml(x, false) : sessionCardHtml(x)).join('')}</div>
                 </div>`).join('')}
         </div>`;
 }
@@ -202,13 +209,104 @@ function sessionCardHtml(s) {
         <div class="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 space-y-2">
             <div class="flex flex-wrap justify-between items-center gap-2">
                 <span class="text-[15px] font-black text-slate-900"><i class="fa-regular fa-calendar mr-2 text-slate-400"></i>${escapeHtml(formatDate(s.sessionDate))}</span>
-                ${starsHtml(s.rating)}
+                <div class="flex items-center gap-3">
+                    ${starsHtml(s.rating)}
+                    <button onclick="startEditSession(${s._idx})" class="session-action text-blue-600 hover:bg-blue-50" title="Edit this session"><i class="fa-solid fa-pen"></i> Edit</button>
+                    <button onclick="deleteSession(${s._idx})" class="session-action text-rose-600 hover:bg-rose-50" title="Delete this session"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
             </div>
             <div class="text-[18px] font-black text-slate-800 leading-snug">${escapeHtml(s.topic || 'No topic')}</div>
             ${s.counselor ? `<div class="text-[15px] font-semibold text-slate-500"><i class="fa-solid fa-user-tie mr-2 text-slate-400"></i>${escapeHtml(s.counselor)}</div>` : ''}
             ${s.review ? `<p class="text-[16px] text-slate-700 leading-relaxed bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">${escapeHtml(s.review)}</p>` : ''}
             ${extras.map(([k, v]) => `<div class="text-[15px]"><span class="font-bold text-slate-500">${escapeHtml(k)}:</span> <span class="text-slate-800">${escapeHtml(v)}</span></div>`).join('')}
         </div>`;
+}
+
+// Session History 편집 폼 (수정 / 새 기록 공용). 엑셀에만 있던 추가 열도 함께 수정 가능
+function sessionFormHtml(s, isNew) {
+    const field = (label, control, wide = false) => `
+        <label class="${wide ? 'md:col-span-2' : ''} block">
+            <span class="block text-[14px] font-bold text-slate-600 mb-1.5">${label}</span>
+            ${control}
+        </label>`;
+    const input = (name, value, attrs = '') => `<input name="${name}" value="${escapeHtml(value ?? '')}" ${attrs} class="session-input">`;
+    const category = String(s.category || '').trim();
+    const categoryOptions = [`<option value="">Auto (from topic)</option>`]
+        .concat(CONSULT_CATEGORIES.map(c => `<option value="${escapeHtml(c.label)}" ${category.toLowerCase() === c.label.toLowerCase() ? 'selected' : ''}>${escapeHtml(c.label)}</option>`))
+        .concat(category && !CONSULT_CATEGORIES.some(c => c.label.toLowerCase() === category.toLowerCase()) ? [`<option value="${escapeHtml(category)}" selected>${escapeHtml(category)}</option>`] : []);
+    const rating = toRating(s.rating);
+    const ratingOptions = [`<option value="">No rating</option>`]
+        .concat([5, 4, 3, 2, 1].map(n => `<option value="${n}" ${rating !== null && Math.round(rating) === n ? 'selected' : ''}>${'★'.repeat(n)} (${n})</option>`));
+    const extras = Object.keys(s).filter(k => !CONSULT_FIELDS.includes(k));
+
+    return `
+        <form onsubmit="saveSession(event)" class="bg-blue-50/40 border-2 border-blue-300 rounded-2xl p-4 md:p-5 space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                ${field('Student Name', input('student', s.student, 'required'))}
+                ${field('uMail', input('umail', s.umail, 'type="email" required pattern="[uU][0-9]{7}@umail\\.utah\\.edu" placeholder="u1234567@umail.utah.edu" title="Format: u1234567@umail.utah.edu"'))}
+                ${field('Session Date', input('sessionDate', s.sessionDate, 'type="date" required'))}
+                ${field('Counselor', input('counselor', s.counselor))}
+                ${field('Category', `<select name="category" class="session-input">${categoryOptions.join('')}</select>`)}
+                ${field('Rating', `<select name="rating" class="session-input">${ratingOptions.join('')}</select>`)}
+                ${field('Topic', input('topic', s.topic), true)}
+                ${field('Notes / Review', `<textarea name="review" rows="4" class="session-input">${escapeHtml(s.review || '')}</textarea>`, true)}
+                ${extras.map(k => field(escapeHtml(k), input(`extra:${k}`, s[k]), true)).join('')}
+            </div>
+            <div class="flex flex-wrap justify-end gap-2 pt-1">
+                <button type="button" onclick="cancelEditSession()" class="consult-btn bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 !text-[15px]">Cancel</button>
+                <button type="submit" class="consult-btn bg-blue-600 hover:bg-blue-500 text-white !text-[15px]"><i class="fa-solid fa-check"></i> ${isNew ? 'Add Session' : 'Save Changes'}</button>
+            </div>
+        </form>`;
+}
+
+function startEditSession(idx) {
+    editingSessionIdx = idx;
+    renderStudentDetail(getConsultationRecords());
+    document.querySelector('#student-detail form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function startNewSession() {
+    editingSessionIdx = 'new';
+    renderStudentDetail(getConsultationRecords());
+    document.querySelector('#student-detail form input[name="sessionDate"]')?.focus();
+}
+
+function cancelEditSession() {
+    editingSessionIdx = null;
+    renderConsultationPage();
+}
+
+function saveSession(evt) {
+    evt.preventDefault();
+    const raw = {};
+    new FormData(evt.target).forEach((value, key) => {
+        raw[key.startsWith('extra:') ? key.slice(6) : key] = typeof value === 'string' ? value.trim() : value;
+    });
+    const record = normalizeConsultationRecord(raw);
+    const isNew = editingSessionIdx === 'new';
+    if (isNew) window.dbState.consultationData.unshift(record);
+    else window.dbState.consultationData[editingSessionIdx] = record;
+    window.saveStateToStorage();
+
+    // uMail·이름을 고친 경우 학생 키가 바뀌므로 수정된 학생으로 다시 선택
+    editingSessionIdx = null;
+    selectedStudentKey = studentKey(record);
+    history.replaceState(null, '', `#student=${encodeURIComponent(selectedStudentKey)}`);
+    renderConsultationPage();
+    showConsultToast(isNew ? `Added a session for ${record.student}.` : `Saved changes to the ${formatDate(record.sessionDate)} session.`);
+}
+
+function deleteSession(idx) {
+    const rec = getConsultationRecords().find(r => r._idx === idx);
+    if (!rec) return;
+    if (!confirm(`Delete the ${formatDate(rec.sessionDate)} session "${rec.topic || 'No topic'}" for ${rec.student || rec.umail}? This cannot be undone.`)) return;
+    window.dbState.consultationData.splice(idx, 1);
+    window.saveStateToStorage();
+    editingSessionIdx = null;
+    // 이 학생의 마지막 기록이었다면 상세 패널을 닫음
+    if (!getConsultationRecords().some(r => studentKey(r) === selectedStudentKey)) selectStudent(null);
+    else renderConsultationPage();
+    showConsultToast('Session deleted.');
 }
 
 function selectCategory(encodedId) {
@@ -219,6 +317,7 @@ function selectCategory(encodedId) {
 // 선택한 학생은 주소(#student=...)에 남겨 새로고침·링크 공유 시에도 유지
 function selectStudent(encodedKey) {
     selectedStudentKey = encodedKey ? decodeURIComponent(encodedKey) : null;
+    editingSessionIdx = null;
     history.replaceState(null, '', selectedStudentKey ? `#student=${encodeURIComponent(selectedStudentKey)}` : location.pathname);
     renderConsultationPage();
     if (selectedStudentKey) document.getElementById('student-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -247,6 +346,7 @@ function handleConsultUpload(evt) {
         window.dbState.consultationData = rows;
         window.saveStateToStorage();
         selectedStudentKey = null;
+        editingSessionIdx = null;
         activeCategory = 'all';
         renderConsultationPage();
         const missing = rows.filter(r => !r.umail).length;
