@@ -40,7 +40,10 @@ function getConsultCategory(rec) {
         // 목록에 없는 카테고리는 적힌 이름 그대로 새 카테고리로
         return { ...CONSULT_CATEGORIES[CONSULT_CATEGORIES.length - 1], id: `custom:${lower}`, label: given };
     }
-    return CONSULT_CATEGORIES.find(c => c.pattern && c.pattern.test(rec.topic || '')) || CONSULT_CATEGORIES[CONSULT_CATEGORIES.length - 1];
+    // 주제로 먼저 판단하고, 없으면 상담 메모, 이름 칸에 메모가 잘못 들어간 경우 그 내용으로 판단
+    const byText = text => CONSULT_CATEGORIES.find(c => c.pattern && c.pattern.test(text || ''));
+    return byText(rec.topic) || byText(rec.review) || (looksLikeNotes(rec.student) ? byText(rec.student) : null)
+        || CONSULT_CATEGORIES[CONSULT_CATEGORIES.length - 1];
 }
 
 // 엑셀 헤더(대소문자·공백·기호 무시) -> 표준 필드명
@@ -175,6 +178,11 @@ function normalizeStoredRecord(raw) {
 // 열 자동 매칭: 열 제목 + 실제 값 모양을 함께 보고 어느 열이 이름/uMail/날짜인지 판단
 // ---------------------------------------------------------------------
 const NAME_LIKE = /^(?:\p{Lu}[\p{L}'’.\-]*)(?:\s+\p{Lu}[\p{L}'’.\-]*){0,3}$|^[가-힣]{2,5}$/u;
+// 사람 이름이 아니라 문장(상담 메모)처럼 보이는 값
+const looksLikeNotes = s => {
+    const t = String(s || '').trim();
+    return t.length > 30 || (t.split(/\s+/).length > 4 && !NAME_LIKE.test(t));
+};
 const MAPPABLE_FIELDS = ['student', 'umail', 'sessionDate', 'counselor', 'category', 'topic', 'rating', 'review'];
 
 function profileColumn(values) {

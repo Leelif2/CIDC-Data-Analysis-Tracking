@@ -61,13 +61,16 @@ function groupByStudent(records) {
         const names = [...new Set(g.sessions.map(x => String(x.student || '').trim()).filter(Boolean))];
         g.name = names[0] || g.umail || 'Unknown student';
         g.aliases = names.slice(1);
+        // 이름 칸에 메모 문장이 들어 있으면 이름 대신 'Name missing'으로 보여주고 문장은 내용 줄에 표시
+        g.nameMissing = looksLikeNotes(g.name);
+        if (g.nameMissing) { g.misplacedNote = g.name; g.name = 'Name missing'; }
         return g;
-    }).sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || byDateDesc(a.last, b.last)); // 이름순
+    }).sort((a, b) => (a.nameMissing - b.nameMissing) || a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || byDateDesc(a.last, b.last)); // 이름순, 이름 없는 항목은 맨 뒤
 }
 
 function findDuplicateNames(students) {
     const counts = new Map();
-    students.forEach(s => { const k = nameKey(s.name); if (k) counts.set(k, (counts.get(k) || 0) + 1); });
+    students.forEach(s => { const k = nameKey(s.name); if (k && !s.nameMissing) counts.set(k, (counts.get(k) || 0) + 1); });
     return new Set([...counts].filter(([, n]) => n > 1).map(([k]) => k));
 }
 
@@ -94,6 +97,7 @@ function renderConsultationPage() {
 
     duplicateNames = findDuplicateNames(groupByStudent(all));
     renderSummary(all);
+    renderDataHealth(all);
 
     const query = document.getElementById('consult-search').value.trim().toLowerCase();
     const counselor = counselorSelect.value;
@@ -153,13 +157,13 @@ function renderStudentList(students, categoryLabel) {
         <button onclick="selectStudent('${jsArg(s.key)}')" class="w-full text-left bg-white border rounded-3xl p-5 md:p-6 transition-all ${active ? 'border-blue-400 ring-2 ring-blue-100 shadow-sm' : 'border-slate-200 hover:border-blue-300 hover:shadow-sm'}">
             <div class="flex justify-between items-start gap-3">
                 <div class="min-w-0 space-y-1">
-                    <div class="text-[22px] font-black text-slate-900 leading-tight">${escapeHtml(s.name)}${duplicateBadgeHtml(s.name)}</div>
+                    <div class="text-[22px] font-black leading-tight ${s.nameMissing ? 'text-slate-400 italic' : 'text-slate-900'}">${escapeHtml(s.name)}${s.nameMissing ? '' : duplicateBadgeHtml(s.name)}</div>
                     <div>${umailBadgeHtml(s.umail)}</div>
                 </div>
                 <span class="shrink-0 bg-blue-50 text-blue-700 px-3.5 py-1.5 rounded-full text-[14px] font-black">${s.sessions.length} session${s.sessions.length === 1 ? '' : 's'}</span>
             </div>
             <div class="text-[15px] text-slate-500 font-medium mt-2">Latest session: ${escapeHtml(formatDate(s.last.sessionDate))}${s.last.counselor ? ` · ${escapeHtml(s.last.counselor)}` : ''}</div>
-            <div class="text-[16px] text-slate-700 font-medium mt-2">${escapeHtml(s.last.topic || 'No topic')}</div>
+            <div class="text-[16px] text-slate-700 font-medium mt-2">${escapeHtml(s.last.topic || s.last.review || s.misplacedNote || 'No topic')}</div>
             <div class="flex flex-wrap gap-1.5 mt-3">${cats}</div>
         </button>`;
     }).join('');
@@ -348,7 +352,7 @@ function showConsultToast(message) {
     toast.innerHTML = `<i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>${escapeHtml(message)}`;
     toast.classList.remove('hidden');
     clearTimeout(showConsultToast.timer);
-    showConsultToast.timer = setTimeout(() => toast.classList.add('hidden'), 5000);
+    showConsultToast.timer = setTimeout(() => toast.classList.add('hidden'), 8000);
 }
 
 // ---------------------------------------------------------------------
@@ -540,8 +544,80 @@ function exportConsultationsCsv() {
     XLSX.writeFile(wb, `CIDC_Consultation_Records_${toIsoDate(new Date())}.csv`);
 }
 
+// ---------------------------------------------------------------------
+// 이름 자리에 상담 메모가 들어간 기록 자동 복구
+// 페이지를 열 때 이름 대부분이 문장처럼 보이면, 진짜 이름 열을 찾아 자동으로 다시 맞춤 (백업 후, 되돌리기 가능)
+// ---------------------------------------------------------------------
+const AUTOFIX_BACKUP_KEY = 'cidc_consultation_backup_before_autofix';
+
+function namesLookWrong(records) {
+    const named = records.filter(r => String(r.student || '').trim());
+    return named.length >= 3 && named.filter(r => looksLikeNotes(r.student)).length / named.length >= 0.5;
+}
+
+function autoRepairNames() {
+    const saved = window.dbState.consultationData;
+    if (!namesLookWrong(saved)) return;
+    const rawRows = saved.map(r => ({ ...r }));
+    const headers = [...new Set(rawRows.flatMap(r => Object.keys(r)))];
+    const fieldMap = autoMapColumns(headers, rawRows);
+    if (!fieldMap.student || fieldMap.student === 'student') return; // 이름 열을 찾지 못함 -> 안내만 표시
+    try { localStorage.setItem(AUTOFIX_BACKUP_KEY, JSON.stringify(saved)); } catch (e) { return; } // 백업 못 하면 고치지 않음
+    window.dbState.consultationData = applyColumnMap(rawRows, fieldMap);
+    window.saveStateToStorage();
+    showConsultToast(`Student names were in the wrong column and have been fixed automatically (names taken from “${fieldMap.student}”).`);
+}
+
+function undoAutoRepair() {
+    let backup = null;
+    try { backup = JSON.parse(localStorage.getItem(AUTOFIX_BACKUP_KEY) || 'null'); } catch (e) { backup = null; }
+    if (!backup) return;
+    window.dbState.consultationData = backup;
+    window.saveStateToStorage();
+    try { localStorage.removeItem(AUTOFIX_BACKUP_KEY); } catch (e) {}
+    selectedStudentKey = null;
+    renderConsultationPage();
+    showConsultToast('Automatic fix undone. Records are back to how they were.');
+}
+
+function keepAutoRepair() {
+    try { localStorage.removeItem(AUTOFIX_BACKUP_KEY); } catch (e) {}
+    renderConsultationPage();
+}
+
+// 목록 위 안내: 자동 복구가 적용됐으면 되돌리기/유지, 이름을 끝내 못 찾았으면 원인과 해결 방법 (열 제목만, 학생 정보는 표시 안 함)
+function renderDataHealth(all) {
+    const box = document.getElementById('data-health');
+    let hasBackup = false;
+    try { hasBackup = Boolean(localStorage.getItem(AUTOFIX_BACKUP_KEY)); } catch (e) {}
+    if (hasBackup) {
+        box.innerHTML = `
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4">
+                <p class="text-[15px] font-semibold text-emerald-900"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Student names were fixed automatically. Check the list — if it looks wrong, undo it.</p>
+                <div class="flex gap-2">
+                    <button onclick="undoAutoRepair()" class="consult-btn !text-[14px] !py-2 bg-white text-slate-700 border border-slate-300">Undo</button>
+                    <button onclick="keepAutoRepair()" class="consult-btn !text-[14px] !py-2 bg-emerald-600 text-white">Looks right</button>
+                </div>
+            </div>`;
+        return;
+    }
+    if (!namesLookWrong(all)) { box.innerHTML = ''; return; }
+    const columns = [...new Set(window.dbState.consultationData.flatMap(r => Object.keys(r)))]
+        .filter(k => window.dbState.consultationData.some(r => r[k] !== '' && r[k] !== null && r[k] !== undefined))
+        .map(k => CONSULT_FIELDS.includes(k) ? `${CONSULT_FIELD_LABELS[k]} (current)` : k);
+    box.innerHTML = `
+        <div class="bg-amber-50 border border-amber-300 rounded-2xl px-5 py-4 space-y-2 text-[15px] text-amber-950">
+            <p class="font-black"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Student names are missing from these records</p>
+            <p>The <b>Student Name</b> field holds consultation notes, and no column with student names was found in the saved data — the names were probably not in the file that was uploaded.</p>
+            <p><b>Columns in the saved data:</b> ${columns.map(c => `<span class="inline-block bg-white border border-amber-200 rounded-lg px-2 py-0.5 m-0.5 text-[13px]">${escapeHtml(c)}</span>`).join('')}</p>
+            <p><b>How to fix:</b> click <b>Upload File</b> and choose the original Excel file that has the student names (choose <b>Replace all</b>), or click <b>Fix Columns</b> if one of the columns above has the names.</p>
+            <button onclick="openFixColumns()" class="consult-btn !text-[14px] !py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300"><i class="fa-solid fa-table-columns"></i> Fix Columns</button>
+        </div>`;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     const match = /#student=(.+)$/.exec(location.hash);
     if (match) selectedStudentKey = decodeURIComponent(match[1]);
+    autoRepairNames();
     renderConsultationPage();
 });
