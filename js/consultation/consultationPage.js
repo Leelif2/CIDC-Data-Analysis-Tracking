@@ -331,28 +331,106 @@ function showConsultToast(message) {
     showConsultToast.timer = setTimeout(() => toast.classList.add('hidden'), 5000);
 }
 
-// Upload File: 현재 상담 기록을 파일 내용으로 교체 (기존 기록이 있으면 확인)
+// Upload File: 파일을 읽어 미리보기를 보여주고, '기존 기록에 추가' 또는 '전체 교체'를 고르게 함
+let pendingImport = null;
+
 function handleConsultUpload(evt) {
     const file = evt.target.files[0];
     evt.target.value = '';
     if (!file) return;
     const reader = new FileReader();
     reader.onload = e => {
-        const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
-        const rows = normalizeConsultationData(XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]));
-        if (!rows.length) { alert('No consultation records were found in this file.'); return; }
-        const current = window.dbState.consultationData.length;
-        if (current && !confirm(`Replace the ${current} current records with ${rows.length} records from "${file.name}"?`)) return;
-        window.dbState.consultationData = rows;
-        window.saveStateToStorage();
-        selectedStudentKey = null;
-        editingSessionIdx = null;
-        activeCategory = 'all';
-        renderConsultationPage();
-        const missing = rows.filter(r => !r.umail).length;
-        showConsultToast(`Loaded ${rows.length} records from "${file.name}".${missing ? ` ${missing} record(s) have no uMail.` : ''}`);
+        let parsed;
+        try {
+            parsed = parseConsultationWorkbook(XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true }));
+        } catch (err) {
+            showImportModal(`Couldn't read "${file.name}"`, `<p>This file couldn't be opened as a spreadsheet. Please upload an <b>.xlsx</b>, <b>.xls</b> or <b>.csv</b> file.</p>`, []);
+            return;
+        }
+        if (!parsed.rows.length) { showImportProblem(file.name, parsed); return; }
+        showImportPreview(file.name, parsed);
     };
     reader.readAsArrayBuffer(file);
+}
+
+const fieldLabel = f => CONSULT_FIELD_LABELS[f] || f;
+
+// 읽을 수 있는 열을 못 찾았을 때: 파일에 있던 열 이름과 필요한 열을 보여줌
+function showImportProblem(fileName, parsed) {
+    const found = parsed.headers.length
+        ? parsed.headers.map(h => `<span class="inline-block bg-slate-100 border border-slate-200 rounded-lg px-2 py-0.5 m-0.5 text-[14px]">${escapeHtml(h)}</span>`).join('')
+        : '<i>No column names found</i>';
+    showImportModal(`No records found in "${fileName}"`, `
+        <p>The file needs a column for the <b>student</b> — <b>uMail</b> (recommended) or <b>Student Name</b> — plus ideally a <b>Session Date</b>.</p>
+        <div><p class="font-bold text-slate-900 mb-1">Columns found${parsed.sheetName ? ` in sheet "${escapeHtml(parsed.sheetName)}"` : ''}:</p>${found}</div>
+        <div class="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-[14px]">
+            <b>How to fix:</b> rename the columns to <b>Session Date, Student, uMail, Counselor, Category, Topic, Rating, Review</b>
+            (these also work: Date, Name, Email, Notes…), or click <b>Download Template</b> and paste your data into it.
+        </div>`, [
+        { label: 'Download Template', style: 'bg-white text-slate-800 border border-slate-300', action: 'downloadConsultationTemplate()' },
+        { label: 'OK', style: 'bg-blue-600 text-white', action: 'closeImportModal()' }
+    ]);
+}
+
+// 미리보기: 몇 건이 새로 추가되고 몇 건이 기존 기록을 갱신하는지, 빠진 정보는 무엇인지
+function showImportPreview(fileName, parsed) {
+    const current = window.dbState.consultationData;
+    const { added, updated } = mergeConsultationRecords(current, parsed.rows);
+    const noUmail = parsed.rows.filter(r => !r.umail).length;
+    const badUmail = parsed.rows.filter(r => r.umail && !isValidUmail(r.umail)).length;
+    const noDate = parsed.rows.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.sessionDate)).length;
+    const mapped = Object.entries(parsed.mapping)
+        .map(([h, f]) => `<li><span class="text-slate-500">${escapeHtml(h)}</span> → <b>${escapeHtml(fieldLabel(f))}</b></li>`).join('');
+    const warn = (n, text) => n ? `<li class="text-amber-700"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${n} ${text}</li>` : '';
+    pendingImport = parsed;
+    showImportModal(`Import ${parsed.rows.length} records from "${fileName}"`, `
+        <div class="grid grid-cols-2 gap-2">
+            <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3"><div class="text-[26px] font-black text-emerald-700">${added}</div><div class="text-[14px] font-bold text-emerald-800">new sessions</div></div>
+            <div class="bg-blue-50 border border-blue-200 rounded-2xl p-3"><div class="text-[26px] font-black text-blue-700">${updated}</div><div class="text-[14px] font-bold text-blue-800">already here (will be updated, not duplicated)</div></div>
+        </div>
+        ${noUmail || badUmail || noDate ? `<ul class="space-y-1 text-[14px] font-semibold">${warn(noUmail, 'record(s) have no uMail — these students are matched by name')}${warn(badUmail, 'record(s) have a uMail in the wrong format')}${warn(noDate, 'record(s) have no readable session date')}</ul>` : ''}
+        <details class="text-[14px]"><summary class="cursor-pointer font-bold text-slate-600">Columns read from sheet "${escapeHtml(parsed.sheetName)}"</summary><ul class="mt-2 space-y-0.5">${mapped}</ul></details>
+        ${current.length ? `<p class="text-[14px] text-slate-500">You currently have ${current.length} records. <b>Add to existing</b> keeps them; <b>Replace all</b> deletes them and keeps only this file.</p>` : ''}`, [
+        { label: 'Cancel', style: 'bg-white text-slate-700 border border-slate-300', action: 'closeImportModal()' },
+        ...(current.length ? [{ label: 'Replace all', style: 'bg-white text-rose-700 border border-rose-300', action: "applyImport('replace')" }] : []),
+        { label: current.length ? 'Add to existing' : 'Import', style: 'bg-blue-600 text-white', action: "applyImport('merge')" }
+    ]);
+}
+
+function applyImport(mode) {
+    if (!pendingImport) return;
+    const rows = pendingImport.rows;
+    if (mode === 'replace' && !confirm(`Delete all ${window.dbState.consultationData.length} current records and keep only the ${rows.length} from this file?`)) return;
+    let message;
+    if (mode === 'replace') {
+        window.dbState.consultationData = mergeConsultationRecords([], rows).records;
+        message = `Replaced all records with ${window.dbState.consultationData.length} from the file.`;
+    } else {
+        const result = mergeConsultationRecords(window.dbState.consultationData, rows);
+        window.dbState.consultationData = result.records;
+        message = `Added ${result.added} new session(s)${result.updated ? ` and updated ${result.updated} existing` : ''}.`;
+    }
+    window.saveStateToStorage();
+    pendingImport = null;
+    closeImportModal();
+    selectedStudentKey = null;
+    editingSessionIdx = null;
+    activeCategory = 'all';
+    renderConsultationPage();
+    showConsultToast(message);
+}
+
+function showImportModal(title, bodyHtml, actions) {
+    document.getElementById('import-title').innerText = title;
+    document.getElementById('import-body').innerHTML = bodyHtml;
+    document.getElementById('import-actions').innerHTML = actions
+        .map(a => `<button onclick="${a.action}" class="consult-btn !text-[15px] ${a.style}">${escapeHtml(a.label)}</button>`).join('');
+    document.getElementById('import-modal').classList.replace('hidden', 'flex');
+}
+
+function closeImportModal() {
+    pendingImport = null;
+    document.getElementById('import-modal').classList.replace('flex', 'hidden');
 }
 
 function openConsultRecordForm() {

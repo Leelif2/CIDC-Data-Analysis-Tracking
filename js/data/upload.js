@@ -7,11 +7,25 @@ function handleFileUpload(evt) {
         const isConsultation = window.dbState.activeExcelSheet === 'Consultation';
         // 상담 시트는 날짜 셀을 Date로 읽어 'YYYY-MM-DD'로 정규화
         const workbook = XLSX.read(data, { type: 'array', cellDates: isConsultation });
+        // 상담 시트: 제목 줄·다른 시트·다양한 헤더도 읽고, 기존 기록에 합침 (같은 상담은 갱신, 중복 생성 안 함)
+        if (isConsultation) {
+            const parsed = parseConsultationWorkbook(workbook);
+            if (!parsed.rows.length) {
+                alert(`No consultation records were found in "${file.name}".\n\nColumns found: ${parsed.headers.join(', ') || '(none)'}\n\nThe file needs a uMail or Student Name column. Use "Download Template" to see the expected columns.`);
+                return;
+            }
+            const result = mergeConsultationRecords(window.dbState.consultationData, parsed.rows);
+            window.dbState.consultationData = result.records;
+            window.saveStateToStorage();
+            updateTabCounts();
+            renderExcelTable();
+            alert(`Added ${result.added} new session(s)${result.updated ? ` and updated ${result.updated} existing` : ''} from "${file.name}".`);
+            return;
+        }
         const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
         if (json.length > 0) {
             if (window.dbState.activeExcelSheet === 'Placement') window.dbState.placementData = json;
             else if (window.dbState.activeExcelSheet === 'OPT') window.dbState.optData = json;
-            else if (isConsultation) window.dbState.consultationData = normalizeConsultationData(json);
             else if (window.dbState.activeExcelSheet === 'Event') window.dbState.eventData = json;
             
             window.saveStateToStorage();

@@ -43,23 +43,52 @@ function getConsultCategory(rec) {
     return CONSULT_CATEGORIES.find(c => c.pattern && c.pattern.test(rec.topic || '')) || CONSULT_CATEGORIES[CONSULT_CATEGORIES.length - 1];
 }
 
-// 엑셀 헤더(대소문자·공백 무시) -> 표준 필드명
+// 엑셀 헤더(대소문자·공백·기호 무시) -> 표준 필드명
+// 1) 정확히 일치하는 이름을 먼저 찾고, 2) 없으면 키워드 포함 여부로 추정 (예: 'Date of Consultation', Google Form 'Timestamp')
+// 한글 헤더(상담일, 이름 등)로 된 기존 엑셀도 읽을 수 있게 함께 인식
 const CONSULT_HEADER_ALIASES = {
-    sessionDate: ['sessiondate', 'date', 'consultationdate'],
-    student: ['student', 'studentname', 'name'],
-    umail: ['umail', 'uemail', 'email', 'studentemail', 'studentumail', 'emailaddress'],
-    counselor: ['counselor', 'counsellor', 'advisor', 'consultant'],
-    category: ['category', 'type', 'consultationtype', 'sessiontype'],
-    topic: ['topic', 'subject'],
-    rating: ['rating', 'score', 'satisfaction', 'stars'],
-    review: ['review', 'feedback', 'comment', 'comments']
+    sessionDate: ['sessiondate', 'date', 'consultationdate', 'timestamp', '상담일', '상담일자', '날짜', '일자'],
+    student: ['student', 'studentname', 'name', 'fullname', '학생', '학생명', '이름', '성명'],
+    umail: ['umail', 'uemail', 'email', 'studentemail', 'studentumail', 'emailaddress', 'unid', 'uid', '이메일'],
+    counselor: ['counselor', 'counsellor', 'advisor', 'consultant', 'staff', '상담사', '상담자', '담당자'],
+    category: ['category', 'type', 'consultationtype', 'sessiontype', '카테고리', '분류', '유형'],
+    topic: ['topic', 'subject', 'purpose', 'reason', '주제', '상담주제', '목적'],
+    rating: ['rating', 'score', 'satisfaction', 'stars', '만족도', '평점', '별점'],
+    review: ['review', 'feedback', 'comment', 'comments', 'notes', 'note', 'memo', '후기', '메모', '의견', '상담내용', '내용']
 };
+// 키워드 추정 순서가 중요: 'Counselor Name'은 student가 아니라 counselor, 'Student Email'은 umail
+const CONSULT_HEADER_KEYWORDS = [
+    ['umail', /umail|e-?mail|unid|이메일/],
+    ['counselor', /counsel|advis|consultant|상담사|상담자|담당/],
+    ['sessionDate', /date|timestamp|when|날짜|일자|상담일/],
+    ['category', /category|type|카테고리|분류|유형/],
+    ['rating', /rating|score|satisf|star|만족|평점|별점/],
+    ['topic', /topic|subject|purpose|reason|주제|목적/],
+    ['review', /review|feedback|comment|note|memo|summary|후기|메모|의견|내용/],
+    ['student', /student|name|학생|이름|성명/]
+];
 
-const normalizeHeader = h => String(h).toLowerCase().replace(/[\s_\-()]/g, '');
+const normalizeHeader = h => String(h).toLowerCase().replace(/[\s_\-().:#/]/g, '');
 const CONSULT_HEADER_LOOKUP = {};
 Object.entries(CONSULT_HEADER_ALIASES).forEach(([field, aliases]) => {
     aliases.forEach(a => { CONSULT_HEADER_LOOKUP[normalizeHeader(a)] = field; });
 });
+
+// 헤더 목록 -> { 원래 헤더: 표준 필드 } (필드마다 첫 번째로 맞는 열 하나만 사용, 나머지 열은 그대로 보존)
+function mapConsultHeaders(headers) {
+    const mapping = {};
+    const used = new Set();
+    const assign = (h, field) => { if (field && !used.has(field) && !(h in mapping)) { mapping[h] = field; used.add(field); } };
+    headers.forEach(h => assign(h, CONSULT_HEADER_LOOKUP[normalizeHeader(h)]));
+    headers.forEach(h => {
+        if (h in mapping) return;
+        const n = normalizeHeader(h);
+        if (/^first ?name$|^given ?name$/.test(String(h).toLowerCase().trim()) || /^(last|family) ?name$|^surname$/.test(String(h).toLowerCase().trim())) return; // 아래에서 합침
+        const hit = CONSULT_HEADER_KEYWORDS.find(([field, re]) => !used.has(field) && re.test(n));
+        if (hit) assign(h, hit[0]);
+    });
+    return mapping;
+}
 
 // 엑셀 날짜(Date 객체, 일련번호, '2026.03.15', '2026/3/5' 등) -> 'YYYY-MM-DD'
 function toIsoDate(value) {
@@ -68,7 +97,8 @@ function toIsoDate(value) {
     if (value instanceof Date) d = value;
     else if (typeof value === 'number' && value > 20000 && value < 80000) d = new Date(Math.round((value - 25569) * 86400000));
     else {
-        const m = /^(\d{4})[.\-/\s]+(\d{1,2})[.\-/\s]+(\d{1,2})/.exec(String(value).trim());
+        // 2026-09-08, 2026.9.8, 2026/9/8, 2026. 9. 8., 2026년 9월 8일
+        const m = /^(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(String(value).trim());
         if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
         const parsed = new Date(value);
         if (!isNaN(parsed)) d = parsed;
@@ -85,14 +115,20 @@ function toRating(value) {
     return n >= 1 && n <= 5 ? n : null;
 }
 
-function normalizeConsultationRecord(raw) {
+function normalizeConsultationRecord(raw, mapping = mapConsultHeaders(Object.keys(raw))) {
     const rec = {};
+    let firstName = '', lastName = '';
     Object.entries(raw).forEach(([key, value]) => {
-        const field = CONSULT_HEADER_LOOKUP[normalizeHeader(key)] || key;
-        rec[field] = typeof value === 'string' ? value.trim() : value;
+        const clean = typeof value === 'string' ? value.trim() : value;
+        const lower = String(key).toLowerCase().trim();
+        if (!mapping[key] && /^first ?name$|^given ?name$/.test(lower)) { firstName = clean; return; }
+        if (!mapping[key] && /^(last|family) ?name$|^surname$/.test(lower)) { lastName = clean; return; }
+        rec[mapping[key] || key] = clean;
     });
+    if (!rec.student && (firstName || lastName)) rec.student = `${firstName || ''} ${lastName || ''}`.trim();
     rec.sessionDate = toIsoDate(rec.sessionDate);
     rec.umail = String(rec.umail ?? '').trim().toLowerCase();
+    if (/^u\d{7}$/.test(rec.umail)) rec.umail += '@umail.utah.edu'; // uNID만 적힌 경우
     const rating = toRating(rec.rating);
     rec.rating = rating === null ? '' : rating;
     CONSULT_FIELDS.forEach(f => { if (rec[f] === undefined) rec[f] = ''; });
@@ -111,7 +147,63 @@ function consultStudentKey(rec) {
 }
 
 function normalizeConsultationData(rows) {
-    return rows.map(normalizeConsultationRecord).filter(r => r.sessionDate || r.student || r.umail || r.review);
+    return rows.map(r => normalizeConsultationRecord(r)).filter(r => r.sessionDate || r.student || r.umail || r.review);
+}
+
+// 엑셀 파일 읽기: 모든 시트의 위쪽 15줄에서 '진짜 헤더 줄'을 찾아 가장 잘 맞는 시트를 사용
+// (맨 위에 제목 줄이 있거나 데이터가 두 번째 시트에 있어도 읽을 수 있게)
+// 반환: { rows, sheetName, headers, mapping, found } — rows가 비면 found로 원인을 안내
+function parseConsultationWorkbook(workbook) {
+    let best = null;
+    workbook.SheetNames.forEach(sheetName => {
+        const grid = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', raw: true });
+        grid.slice(0, 15).forEach((row, rowIdx) => {
+            const headers = row.map(c => String(c ?? '').trim());
+            const mapping = mapConsultHeaders(headers.filter(Boolean));
+            const fields = new Set(Object.values(mapping));
+            const score = fields.size + (fields.has('umail') || fields.has('student') ? 2 : 0) + (fields.has('sessionDate') ? 1 : 0);
+            if (!best || score > best.score) best = { score, sheetName, rowIdx, headers, mapping, grid };
+        });
+    });
+    const allHeaders = best ? best.headers.filter(Boolean) : [];
+    const fields = best ? new Set(Object.values(best.mapping)) : new Set();
+    if (!best || !(fields.has('student') || fields.has('umail'))) {
+        return { rows: [], sheetName: best?.sheetName, headers: allHeaders, mapping: best?.mapping || {}, found: false };
+    }
+    const rows = best.grid.slice(best.rowIdx + 1).map(cells => {
+        const raw = {};
+        best.headers.forEach((h, i) => { if (h && cells[i] !== '' && cells[i] !== undefined && cells[i] !== null) raw[h] = cells[i]; });
+        return raw;
+    }).filter(raw => Object.keys(raw).length)
+      .map(raw => normalizeConsultationRecord(raw, best.mapping))
+      .filter(r => r.sessionDate || r.student || r.umail || r.review);
+    return { rows, sheetName: best.sheetName, headers: allHeaders, mapping: best.mapping, found: true };
+}
+
+// 중복 판별 키 (공유 DB의 UNIQUE 규칙과 동일): 학생 + 날짜 + 카테고리 + 주제(대소문자·공백 무시)
+function consultRecordKey(rec) {
+    return [consultStudentKey(rec), rec.sessionDate, getConsultCategory(rec).id, String(rec.topic || '').trim().toLowerCase()].join('|');
+}
+
+// 기존 기록에 새 기록 합치기: 같은 상담이면 새 값으로 갱신, 아니면 추가 (파일 안의 중복도 하나로)
+function mergeConsultationRecords(existing, incoming) {
+    const merged = existing.map(r => normalizeConsultationRecord(r));
+    const index = new Map(merged.map((r, i) => [consultRecordKey(r), i]));
+    let added = 0, updated = 0;
+    incoming.forEach(rec => {
+        const key = consultRecordKey(rec);
+        if (index.has(key)) {
+            const i = index.get(key);
+            // 새 파일에 비어 있는 칸은 기존 값을 유지
+            Object.entries(rec).forEach(([k, v]) => { if (v !== '' && v !== null && v !== undefined) merged[i][k] = v; });
+            updated++;
+        } else {
+            index.set(key, merged.length);
+            merged.push(rec);
+            added++;
+        }
+    });
+    return { records: merged, added, updated };
 }
 
 // Spring = Jan–May, Summer = Jun–Aug, Fall = Sep–Dec
