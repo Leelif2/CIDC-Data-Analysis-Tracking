@@ -3,9 +3,16 @@
 let selectedStudentKey = null;
 
 const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const studentKey = rec => String(rec.student || '').trim().toLowerCase();
+// 학생 구분: uMail 우선 (동명이인 대비), uMail이 없는 기록만 이름으로 묶음
+const studentKey = consultStudentKey;
 // onclick 인자용: 작은따옴표까지 인코딩 (O'Brien 같은 이름 대비)
 const keyArg = key => encodeURIComponent(key).replace(/'/g, '%27');
+
+function umailBadgeHtml(umail) {
+    if (!umail) return '<span class="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded text-[9px] font-extrabold"><i class="fa-solid fa-triangle-exclamation"></i> No uMail · matched by name</span>';
+    const warn = isValidUmail(umail) ? '' : ' <span class="bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded text-[9px] font-extrabold" title="Expected format: u1234567@umail.utah.edu">Check format</span>';
+    return `<span class="text-[10px] font-bold text-blue-700"><i class="fa-regular fa-envelope mr-1 text-blue-400"></i>${escapeHtml(umail)}</span>${warn}`;
+}
 
 function starsHtml(value) {
     const rating = toRating(value);
@@ -36,7 +43,7 @@ function applyConsultFilters(records, f) {
     return filterConsultations(records, f.year, f.season).filter(r => {
         if (f.counselor !== 'All' && r.counselor !== f.counselor) return false;
         if (!f.query) return true;
-        return [r.student, r.topic, r.review, r.counselor].some(v => String(v || '').toLowerCase().includes(f.query));
+        return [r.student, r.umail, r.topic, r.review, r.counselor].some(v => String(v || '').toLowerCase().includes(f.query));
     });
 }
 
@@ -47,13 +54,17 @@ function groupByStudent(records) {
     records.forEach(r => {
         const key = studentKey(r);
         if (!key) return;
-        if (!groups.has(key)) groups.set(key, { key, name: String(r.student).trim(), sessions: [] });
+        if (!groups.has(key)) groups.set(key, { key, umail: r.umail, sessions: [] });
         groups.get(key).sessions.push(r);
     });
     return [...groups.values()].map(g => {
         g.sessions.sort(byDateDesc);
         g.stats = consultationStats(g.sessions);
         g.last = g.sessions[0];
+        // 같은 uMail에 이름이 다르게 적힌 경우: 가장 최근 이름을 대표로, 나머지는 별칭으로 표시
+        const names = [...new Set(g.sessions.map(x => String(x.student || '').trim()).filter(Boolean))];
+        g.name = names[0] || g.umail || 'Unknown student';
+        g.aliases = names.slice(1);
         return g;
     }).sort((a, b) => byDateDesc(a.last, b.last));
 }
@@ -94,6 +105,7 @@ function renderStudentList(students) {
                 <span class="text-[12px] font-black text-slate-900 truncate">${escapeHtml(s.name)}</span>
                 <span class="shrink-0 bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-full text-[9px] font-black">${s.sessions.length} session${s.sessions.length === 1 ? '' : 's'}</span>
             </div>
+            <div class="mt-0.5">${umailBadgeHtml(s.umail)}</div>
             <div class="flex justify-between items-center gap-2 mt-1 text-[10px]">
                 <span class="text-slate-500 font-semibold truncate">${escapeHtml(s.last.topic || 'No topic')}</span>
                 <span class="shrink-0 text-[10px]">${starsHtml(s.stats.avg)}</span>
@@ -133,6 +145,8 @@ function renderStudentDetail(all) {
                 <div class="w-11 h-11 shrink-0 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center text-[13px] font-black">${escapeHtml(initials)}</div>
                 <div class="min-w-0">
                     <h3 class="text-[16px] font-black text-slate-900 truncate">${escapeHtml(student.name)}</h3>
+                    <div class="my-0.5">${umailBadgeHtml(student.umail)}</div>
+                    ${student.aliases.length ? `<p class="text-[10px] text-amber-700 font-bold truncate">Also recorded as: ${escapeHtml(student.aliases.join(', '))}</p>` : ''}
                     <p class="text-[10px] text-slate-500 font-semibold truncate">${counselors.length ? `Counselor${counselors.length > 1 ? 's' : ''}: ${escapeHtml(counselors.join(', '))}` : 'No counselor recorded'}</p>
                 </div>
             </div>
@@ -180,13 +194,14 @@ function renderSessionTable(filtered) {
     const body = document.getElementById('session-table-body');
     const rows = [...filtered].sort(byDateDesc);
     if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">No sessions match these filters.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-500">No sessions match these filters.</td></tr>';
         return;
     }
     body.innerHTML = rows.map(r => `
         <tr onclick="selectStudent('${keyArg(studentKey(r))}')" class="cursor-pointer transition-colors ${studentKey(r) === selectedStudentKey ? 'bg-blue-50' : 'hover:bg-slate-50'}">
             <td class="p-3 whitespace-nowrap font-bold text-slate-900">${escapeHtml(r.sessionDate || '-')}</td>
             <td class="p-3 whitespace-nowrap font-bold text-blue-600">${escapeHtml(r.student || '-')}</td>
+            <td class="p-3 whitespace-nowrap ${r.umail ? 'text-slate-600' : 'text-amber-600 font-bold'}">${escapeHtml(r.umail || 'No uMail')}</td>
             <td class="p-3 whitespace-nowrap">${escapeHtml(r.counselor || '-')}</td>
             <td class="p-3">${escapeHtml(r.topic || '-')}</td>
             <td class="p-3 whitespace-nowrap">${starsHtml(r.rating)}</td>

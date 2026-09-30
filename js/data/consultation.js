@@ -1,10 +1,12 @@
 // 상담 기록(Consultation 시트) 표준 형식 & 집계
-// 한 행 = 상담 1건: { sessionDate, student, counselor, topic, rating, review }
-const CONSULT_FIELDS = ['sessionDate', 'student', 'counselor', 'topic', 'rating', 'review'];
+// 한 행 = 상담 1건: { sessionDate, student, umail, counselor, topic, rating, review }
+// 학생 구분은 uMail 기준 (동명이인 대비). uMail이 없는 기록만 이름으로 묶음
+const CONSULT_FIELDS = ['sessionDate', 'student', 'umail', 'counselor', 'topic', 'rating', 'review'];
 
 const CONSULT_FIELD_LABELS = {
     sessionDate: 'Session Date',
     student: 'Student',
+    umail: 'uMail',
     counselor: 'Counselor',
     topic: 'Topic',
     rating: 'Rating (1–5)',
@@ -15,6 +17,7 @@ const CONSULT_FIELD_LABELS = {
 const CONSULT_HEADER_ALIASES = {
     sessionDate: ['sessiondate', 'date', 'consultationdate'],
     student: ['student', 'studentname', 'name'],
+    umail: ['umail', 'uemail', 'email', 'studentemail', 'studentumail', 'emailaddress'],
     counselor: ['counselor', 'counsellor', 'advisor', 'consultant'],
     topic: ['topic', 'subject', 'category'],
     rating: ['rating', 'score', 'satisfaction', 'stars'],
@@ -58,14 +61,26 @@ function normalizeConsultationRecord(raw) {
         rec[field] = typeof value === 'string' ? value.trim() : value;
     });
     rec.sessionDate = toIsoDate(rec.sessionDate);
+    rec.umail = String(rec.umail ?? '').trim().toLowerCase();
     const rating = toRating(rec.rating);
     rec.rating = rating === null ? '' : rating;
     CONSULT_FIELDS.forEach(f => { if (rec[f] === undefined) rec[f] = ''; });
     return rec;
 }
 
+// uMail 형식: u + 7자리 숫자 @umail.utah.edu (예: u1234567@umail.utah.edu)
+const UMAIL_PATTERN = /^u\d{7}@umail\.utah\.edu$/;
+const isValidUmail = v => UMAIL_PATTERN.test(String(v || '').trim().toLowerCase());
+
+// 같은 학생 판별 키: uMail 우선, 없으면 이름
+function consultStudentKey(rec) {
+    if (rec.umail) return `umail:${rec.umail}`;
+    const name = String(rec.student || '').trim().toLowerCase();
+    return name ? `name:${name}` : '';
+}
+
 function normalizeConsultationData(rows) {
-    return rows.map(normalizeConsultationRecord).filter(r => r.sessionDate || r.student || r.review);
+    return rows.map(normalizeConsultationRecord).filter(r => r.sessionDate || r.student || r.umail || r.review);
 }
 
 // Spring = Jan–May, Summer = Jun–Aug, Fall = Sep–Dec
@@ -109,7 +124,7 @@ function getConsultationRecords() {
 // 실제 기록 입력용 엑셀 양식 (헤더 + 예시 1행)
 function downloadConsultationTemplate() {
     const rows = [{
-        'Session Date': '2026-03-15', 'Student': 'Jane Doe', 'Counselor': 'Dr. Robert Carter',
+        'Session Date': '2026-03-15', 'Student': 'Jane Doe', 'uMail': 'u1234567@umail.utah.edu', 'Counselor': 'Dr. Robert Carter',
         'Topic': 'OPT Filing & Resume Review', 'Rating': 5, 'Review': 'The session made the OPT application process clear.'
     }];
     const wb = XLSX.utils.book_new();

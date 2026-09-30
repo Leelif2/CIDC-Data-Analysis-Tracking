@@ -12,14 +12,15 @@ const defaultState = {
     ],
     // Sample data — replaced when real records are uploaded in Excel List > Consultation Sheet
     consultationData: [
-        { sessionDate: '2026-03-15', student: 'Alex Johnson', counselor: 'Dr. Robert Carter', topic: 'OPT Legal Filing & Resume Review', rating: 5, review: 'The OPT legal seminar clarified all my F1 visa questions and streamlined my EAD application.' },
-        { sessionDate: '2026-03-02', student: 'Minji Kim', counselor: 'Soohyun Lee', topic: 'Mock Interview & Tech Screen Prep', rating: 5, review: '10/10 mock interview sessions. I felt fully prepared for the tech screen at Apple.' },
-        { sessionDate: '2026-02-18', student: 'Sarah Smith', counselor: 'Dr. Robert Carter', topic: 'Career Fair Preparation', rating: 4, review: 'The career fair prep session was directly responsible for my full-time offer.' },
-        { sessionDate: '2026-01-27', student: 'Junho Park', counselor: 'Soohyun Lee', topic: 'Resume Review', rating: 4, review: 'My resume is much cleaner now and I am getting more interview calls.' },
-        { sessionDate: '2025-11-12', student: 'Alex Johnson', counselor: 'Dr. Robert Carter', topic: 'Resume Review', rating: 4, review: 'Clear, specific edits. My bullet points finally show impact.' },
-        { sessionDate: '2025-09-22', student: 'Minji Kim', counselor: 'Soohyun Lee', topic: 'Career Planning', rating: 5, review: 'Helped me map out internships for the next two semesters.' },
-        { sessionDate: '2025-10-08', student: 'Emily Davis', counselor: 'Jane Park', topic: 'Networking Strategy', rating: 5, review: 'Practical advice on reaching out to alumni on LinkedIn.' },
-        { sessionDate: '2025-07-14', student: 'Yuna Choi', counselor: 'Jane Park', topic: 'STEM OPT Extension', rating: 3, review: '' }
+        { sessionDate: '2026-03-15', student: 'Alex Johnson', umail: 'u1100101@umail.utah.edu', counselor: 'Dr. Robert Carter', topic: 'OPT Legal Filing & Resume Review', rating: 5, review: 'The OPT legal seminar clarified all my F1 visa questions and streamlined my EAD application.' },
+        { sessionDate: '2026-03-02', student: 'Minji Kim', umail: 'u1100102@umail.utah.edu', counselor: 'Soohyun Lee', topic: 'Mock Interview & Tech Screen Prep', rating: 5, review: '10/10 mock interview sessions. I felt fully prepared for the tech screen at Apple.' },
+        { sessionDate: '2026-02-18', student: 'Sarah Smith', umail: 'u1100103@umail.utah.edu', counselor: 'Dr. Robert Carter', topic: 'Career Fair Preparation', rating: 4, review: 'The career fair prep session was directly responsible for my full-time offer.' },
+        { sessionDate: '2026-01-27', student: 'Junho Park', umail: 'u1100104@umail.utah.edu', counselor: 'Soohyun Lee', topic: 'Resume Review', rating: 4, review: 'My resume is much cleaner now and I am getting more interview calls.' },
+        { sessionDate: '2025-11-12', student: 'Alex Johnson', umail: 'u1100101@umail.utah.edu', counselor: 'Dr. Robert Carter', topic: 'Resume Review', rating: 4, review: 'Clear, specific edits. My bullet points finally show impact.' },
+        { sessionDate: '2025-09-22', student: 'Minji Kim', umail: 'u1100102@umail.utah.edu', counselor: 'Soohyun Lee', topic: 'Career Planning', rating: 5, review: 'Helped me map out internships for the next two semesters.' },
+        { sessionDate: '2026-02-05', student: 'Minji Kim', umail: 'u1100207@umail.utah.edu', counselor: 'Jane Park', topic: 'F-1 Work Authorization Q&A', rating: 4, review: 'Quick, clear answers about on-campus work limits.' },
+        { sessionDate: '2025-10-08', student: 'Emily Davis', umail: 'u1100105@umail.utah.edu', counselor: 'Jane Park', topic: 'Networking Strategy', rating: 5, review: 'Practical advice on reaching out to alumni on LinkedIn.' },
+        { sessionDate: '2025-07-14', student: 'Yuna Choi', umail: 'u1100106@umail.utah.edu', counselor: 'Jane Park', topic: 'STEM OPT Extension', rating: 3, review: '' }
     ],
     eventData: [
         { title: 'OPT Workshop & Legal Seminar', date: '2026-02-15', attendance: 220, photo: 'https://images.unsplash.com/photo-1475721027785-f74eccf877e2?w=1000&auto=format&fit=crop&q=80', desc: 'Comprehensive visa & STEM OPT guidance with certified immigration attorneys.' },
