@@ -60,8 +60,10 @@ function askHidden(question) {
                     return;
                 }
                 if (ch === '\u0003') { process.stdout.write('\n'); process.exit(130); }  // Ctrl+C
-                if (ch === '\u007f' || ch === '\b') { value = value.slice(0, -1); continue; } // Backspace
-                if (ch >= ' ') value += ch;
+                // Backspace: 마지막 글자와 * 하나 지우기
+                if (ch === '\u007f' || ch === '\b') { if (value) { value = value.slice(0, -1); process.stdout.write('\b \b'); } continue; }
+                // 글자마다 * 하나만 표시 (비밀번호 자체는 보이지 않지만 입력이 되고 있는지는 확인 가능)
+                if (ch >= ' ') { value += ch; process.stdout.write('*'); }
             }
         };
         stdin.on('data', onData);
@@ -99,6 +101,8 @@ function saveAndShow(accounts, message) {
 
 function passwordProblems(pw, email) {
     const problems = [];
+    // 한/영 키가 한글이면 영문 키가 한글로 입력됨 → 브라우저 로그인과 맞지 않게 됨
+    if (/[^\x20-\x7E]/.test(pw)) return ['only English letters, numbers and symbols are allowed — your keyboard may be in KOREAN mode. Press the 한/영 key to switch to English (A) and type it again'];
     if (pw.length < 12) problems.push('use at least 12 characters');
     if ([/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(re => re.test(pw)).length < 3) problems.push('mix at least 3 of: lowercase, uppercase, numbers, symbols');
     const local = email.split('@')[0];
@@ -137,6 +141,7 @@ if (checkIdx !== -1) {
     const accounts = fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, 'utf8')) : {};
     if (!accounts[email]) { console.error(`${email || '(no email given)'} is not in the saved staff list.`); process.exit(1); }
     const password = await ask(`Password to test for ${email} (hidden): `, { hidden: true });
+    if (/[^\x20-\x7E]/.test(password)) console.log('\nNote: what you typed contains non-English characters — your keyboard may be in KOREAN mode (press the 한/영 key).');
     const [, iter, salt, hash] = accounts[email].split('$');
     const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
     const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: Buffer.from(salt, 'base64url'), iterations: Number(iter) }, key, 256);
