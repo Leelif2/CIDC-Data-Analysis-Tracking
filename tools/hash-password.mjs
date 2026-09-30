@@ -2,6 +2,7 @@
 //
 //   node tools/hash-password.mjs                  add a staff member (or reset their password)
 //   node tools/hash-password.mjs --list           show who has access
+//   node tools/hash-password.mjs --copy           copy the current STAFF_ACCOUNTS value to the clipboard again
 //   node tools/hash-password.mjs --remove EMAIL   remove a staff member
 //   node tools/hash-password.mjs --secret         print a new random SESSION_SECRET
 //
@@ -81,6 +82,17 @@ async function hashPassword(password) {
     const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
     const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: ITERATIONS }, key, 256);
     return `pbkdf2-sha256$${ITERATIONS}$${b64url(salt)}$${b64url(new Uint8Array(bits))}`;
+}
+
+// 저장된 목록 전체를 다시 클립보드로 (Vercel에 붙여넣기 전에 다른 걸 복사해 버렸을 때)
+if (args.includes('--copy')) {
+    if (!fs.existsSync(STORE)) { console.error('No saved staff list on this computer yet. Add someone first.'); process.exit(1); }
+    const accounts = JSON.parse(fs.readFileSync(STORE, 'utf8'));
+    const copied = copyToClipboard(JSON.stringify(accounts));
+    console.log(copied
+        ? `STAFF_ACCOUNTS value for ${Object.keys(accounts).length} staff (${Object.keys(accounts).join(', ')}) is COPIED to your clipboard.`
+        : `Could not copy automatically. Value:\n\n${JSON.stringify(accounts)}`);
+    process.exit(0);
 }
 
 if (args.includes('--list')) {
