@@ -2,7 +2,8 @@
 //
 //   node tools/hash-password.mjs                  add a staff member (or reset their password)
 //   node tools/hash-password.mjs --list           show who has access
-//   node tools/hash-password.mjs --copy           copy the current STAFF_ACCOUNTS value to the clipboard again
+//   node tools/hash-password.mjs --copy [EMAIL..] copy the STAFF_ACCOUNTS value again (optionally only these staff)
+//   node tools/hash-password.mjs --check EMAIL    test whether a password matches the saved account
 //   node tools/hash-password.mjs --remove EMAIL   remove a staff member
 //   node tools/hash-password.mjs --secret         print a new random SESSION_SECRET
 //
@@ -114,13 +115,34 @@ async function hashPassword(password) {
 }
 
 // 저장된 목록 전체를 다시 클립보드로 (Vercel에 붙여넣기 전에 다른 걸 복사해 버렸을 때)
+// --copy EMAIL ... 처럼 이메일을 적으면 그 계정만 골라서 복사 (예: 비밀번호가 노출된 계정을 잠시 빼고 싶을 때)
 if (args.includes('--copy')) {
     if (!fs.existsSync(STORE)) { console.error('No saved staff list on this computer yet. Add someone first.'); process.exit(1); }
-    const accounts = JSON.parse(fs.readFileSync(STORE, 'utf8'));
+    const all = JSON.parse(fs.readFileSync(STORE, 'utf8'));
+    const wanted = args.filter(a => !a.startsWith('--')).map(a => a.trim().toLowerCase());
+    const missing = wanted.filter(e => !(e in all));
+    if (missing.length) { console.error(`Not in the saved staff list: ${missing.join(', ')}`); process.exit(1); }
+    const accounts = wanted.length ? Object.fromEntries(wanted.map(e => [e, all[e]])) : all;
     const copied = copyToClipboard(JSON.stringify(accounts));
     console.log(copied
         ? `STAFF_ACCOUNTS value for ${Object.keys(accounts).length} staff (${Object.keys(accounts).join(', ')}) is COPIED to your clipboard.`
         : `Could not copy automatically. Value:\n\n${JSON.stringify(accounts)}`);
+    process.exit(0);
+}
+
+// --check EMAIL: 입력한 비밀번호가 이 PC에 저장된 계정과 맞는지 확인 (Vercel에 올리기 전에 점검용)
+const checkIdx = args.indexOf('--check');
+if (checkIdx !== -1) {
+    const email = String(args[checkIdx + 1] || '').trim().toLowerCase();
+    const accounts = fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, 'utf8')) : {};
+    if (!accounts[email]) { console.error(`${email || '(no email given)'} is not in the saved staff list.`); process.exit(1); }
+    const password = await ask(`Password to test for ${email} (hidden): `, { hidden: true });
+    const [, iter, salt, hash] = accounts[email].split('$');
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: Buffer.from(salt, 'base64url'), iterations: Number(iter) }, key, 256);
+    console.log(b64url(new Uint8Array(bits)) === hash
+        ? '\nMATCH — this password is correct for the saved account.'
+        : '\nNO MATCH — this is not the saved password. Reset it with: node tools/hash-password.mjs');
     process.exit(0);
 }
 
