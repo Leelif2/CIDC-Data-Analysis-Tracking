@@ -90,6 +90,11 @@ function mapConsultHeaders(headers) {
     return mapping;
 }
 
+const isFirstNameHeader = h => /^(first|given) ?name$/.test(String(h).toLowerCase().trim());
+const isLastNameHeader = h => /^((last|family) ?name|surname)$/.test(String(h).toLowerCase().trim());
+
+const DATE_LIKE = /\d{1,4}\s*[\/.\-]\s*\d{1,2}\s*[\/.\-]\s*\d{1,4}|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+
 // 엑셀 날짜(Date 객체, 일련번호, '2026.03.15', '2026/3/5' 등) -> 'YYYY-MM-DD'
 function toIsoDate(value) {
     if (value === undefined || value === null || value === '') return '';
@@ -100,6 +105,8 @@ function toIsoDate(value) {
         // 2026-09-08, 2026.9.8, 2026/9/8, 2026. 9. 8., 2026년 9월 8일
         const m = /^(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(String(value).trim());
         if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+        // 날짜처럼 생긴 글자만 해석 (상담 메모 같은 일반 문장이 날짜로 잘못 바뀌지 않게)
+        if (!DATE_LIKE.test(String(value))) return String(value);
         const parsed = new Date(value);
         if (!isNaN(parsed)) d = parsed;
     }
@@ -120,9 +127,13 @@ function normalizeConsultationRecord(raw, mapping = mapConsultHeaders(Object.key
     let firstName = '', lastName = '';
     Object.entries(raw).forEach(([key, value]) => {
         const clean = typeof value === 'string' ? value.trim() : value;
-        const lower = String(key).toLowerCase().trim();
-        if (!mapping[key] && /^first ?name$|^given ?name$/.test(lower)) { firstName = clean; return; }
-        if (!mapping[key] && /^(last|family) ?name$|^surname$/.test(lower)) { lastName = clean; return; }
+        if (!mapping[key] && isFirstNameHeader(key)) { firstName = clean; return; }
+        if (!mapping[key] && isLastNameHeader(key)) { lastName = clean; return; }
+        // 표준 필드 이름과 같은 열이 다른 필드로 쓰이지 않았다면 이름을 바꿔 보존 (값이 덮어써지지 않게, 빈 값은 버림)
+        if (!mapping[key] && CONSULT_FIELDS.includes(key)) {
+            if (clean !== '' && clean !== null && clean !== undefined) rec[`${CONSULT_FIELD_LABELS[key]} (old)`] = clean;
+            return;
+        }
         rec[mapping[key] || key] = clean;
     });
     if (!rec.student && (firstName || lastName)) rec.student = `${firstName || ''} ${lastName || ''}`.trim();
@@ -146,13 +157,105 @@ function consultStudentKey(rec) {
     return name ? `name:${name}` : '';
 }
 
+const hasContent = r => r.sessionDate || r.student || r.umail || r.review;
+
 function normalizeConsultationData(rows) {
-    return rows.map(r => normalizeConsultationRecord(r)).filter(r => r.sessionDate || r.student || r.umail || r.review);
+    return rows.map(r => normalizeConsultationRecord(r)).filter(hasContent);
+}
+
+// 이미 저장된 기록(표준 필드 이름 사용)을 다시 읽을 때: 표준 필드는 그대로, 나머지 열은 추가 정보로 보존
+// (추가 열 이름이 'Notes'처럼 별칭과 겹쳐도 다시 추측해서 뒤바뀌지 않게)
+function normalizeStoredRecord(raw) {
+    const identity = {};
+    Object.keys(raw).forEach(k => { if (CONSULT_FIELDS.includes(k)) identity[k] = k; });
+    return normalizeConsultationRecord(raw, identity);
+}
+
+// ---------------------------------------------------------------------
+// 열 자동 매칭: 열 제목 + 실제 값 모양을 함께 보고 어느 열이 이름/uMail/날짜인지 판단
+// ---------------------------------------------------------------------
+const NAME_LIKE = /^(?:\p{Lu}[\p{L}'’.\-]*)(?:\s+\p{Lu}[\p{L}'’.\-]*){0,3}$|^[가-힣]{2,5}$/u;
+const MAPPABLE_FIELDS = ['student', 'umail', 'sessionDate', 'counselor', 'category', 'topic', 'rating', 'review'];
+
+function profileColumn(values) {
+    const vals = values.filter(v => v !== '' && v !== null && v !== undefined).slice(0, 300);
+    const n = vals.length || 1;
+    const strs = vals.map(v => (v instanceof Date ? '' : String(v).trim()));
+    const ratio = test => vals.filter(test).length / n;
+    return {
+        count: vals.length,
+        umail: ratio(v => /^u\d{7}(@umail\.utah\.edu)?$/i.test(String(v).trim())),
+        email: ratio(v => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(String(v).trim())),
+        date: ratio(v => v instanceof Date || (typeof v === 'number' && v > 30000 && v < 60000) || (typeof v === 'string' && v.length <= 40 && /^\d{4}-\d{2}-\d{2}$/.test(toIsoDate(v)))),
+        name: strs.filter(s => NAME_LIKE.test(s)).length / n,
+        // 성+이름처럼 두 단어 이상이거나 한글 이름 (제목 없이 값만으로 이름 열을 고를 때 사용)
+        fullName: strs.filter(s => NAME_LIKE.test(s) && (/\s/.test(s) || /^[가-힣]{2,5}$/.test(s))).length / n,
+        rating: ratio(v => toRating(v) !== null && String(v).trim().length <= 6),
+        avgLen: strs.reduce((a, s) => a + s.length, 0) / n,
+        samples: [...new Set(strs.filter(Boolean))].slice(0, 3)
+    };
+}
+
+// rows: [{ 열 제목: 값 }], 반환: { student: '열 제목' | null, umail: ..., ... }
+function autoMapColumns(headers, rows) {
+    const profiles = {};
+    headers.forEach(h => { profiles[h] = profileColumn(rows.map(r => r[h])); });
+    const byHeader = mapConsultHeaders(headers); // 제목으로 먼저 추측
+    const map = Object.fromEntries(MAPPABLE_FIELDS.map(f => [f, null]));
+    Object.entries(byHeader).forEach(([h, f]) => { if (f in map && !map[f]) map[f] = h; });
+    const taken = () => new Set(Object.values(map).filter(Boolean));
+    // First/Last Name 열은 따로 쓰지 않고 나중에 합침 (normalizeConsultationRecord)
+    const splitName = h => isFirstNameHeader(h) || isLastNameHeader(h);
+    const nameHeader = h => /name|이름|성명/i.test(h) && !/counsel|advis|staff|상담사|담당/i.test(h) && !splitName(h);
+
+    // 값이 하나도 없는 열은 어떤 필드에도 쓰지 않음
+    Object.keys(map).forEach(f => { if (map[f] && profiles[map[f]].count === 0) map[f] = null; });
+    if (map.student && splitName(map.student)) map.student = null;
+
+    // 값이 맞지 않으면 제목 추측을 버림
+    const valid = {
+        umail: p => p.umail + p.email >= 0.5,
+        sessionDate: p => p.date >= 0.5,
+        student: (p, h) => p.name >= 0.5 || (nameHeader(h) && p.avgLen <= 40),
+        counselor: p => p.name >= 0.4,
+        rating: p => p.rating >= 0.6
+    };
+    Object.entries(valid).forEach(([f, ok]) => { if (map[f] && !ok(profiles[map[f]], map[f])) map[f] = null; });
+
+    // 이름: 'Name'이 들어간 열이 이름처럼 보이면 그 열을 우선
+    const betterName = headers.find(h => nameHeader(h) && !taken().has(h) && profiles[h].name >= 0.5);
+    if (betterName && (!map.student || !nameHeader(map.student))) map.student = betterName;
+
+    // 빈 자리는 값 모양이 가장 잘 맞는 열로 채움
+    const pick = (field, score, min) => {
+        if (map[field]) return;
+        let best = null;
+        headers.forEach(h => {
+            if (taken().has(h) || profiles[h].count === 0) return;
+            const s = score(profiles[h], h);
+            if (s >= min && (!best || s > best.s)) best = { h, s };
+        });
+        if (best) map[field] = best.h;
+    };
+    pick('umail', p => p.umail + (p.email * 0.5), 0.5);
+    pick('sessionDate', p => p.date, 0.6);
+    // 제목에 Name이 있으면 이름 모양이면 충분, 없으면 '성 이름' 모양이 대부분이어야 함 (한 단어 값만 있는 열 오인 방지)
+    const hasSplitName = headers.some(isFirstNameHeader) && headers.some(isLastNameHeader);
+    if (!hasSplitName) pick('student', (p, h) => (splitName(h) ? 0 : nameHeader(h) ? p.name + 0.5 : p.fullName) - (p.avgLen > 40 ? 1 : 0), 0.6);
+    pick('review', p => (p.avgLen >= 25 ? p.avgLen / 100 : 0), 0.25);
+    return map;
+}
+
+// { 필드: 열 제목 } 대로 원본 행을 표준 기록으로 변환
+function applyColumnMap(rawRows, fieldMap) {
+    const headerToField = {};
+    Object.entries(fieldMap).forEach(([f, h]) => { if (h) headerToField[h] = f; });
+    return rawRows.map(raw => normalizeConsultationRecord(raw, headerToField)).filter(hasContent);
 }
 
 // 엑셀 파일 읽기: 모든 시트의 위쪽 15줄에서 '진짜 헤더 줄'을 찾아 가장 잘 맞는 시트를 사용
 // (맨 위에 제목 줄이 있거나 데이터가 두 번째 시트에 있어도 읽을 수 있게)
-// 반환: { rows, sheetName, headers, mapping, found } — rows가 비면 found로 원인을 안내
+// 반환: { rawRows, headers, fieldMap, rows, sheetName, found } — 화면에서 열 매칭을 바꿔 다시 적용할 수 있게 원본도 돌려줌
 function parseConsultationWorkbook(workbook) {
     let best = null;
     workbook.SheetNames.forEach(sheetName => {
@@ -162,32 +265,35 @@ function parseConsultationWorkbook(workbook) {
             const mapping = mapConsultHeaders(headers.filter(Boolean));
             const fields = new Set(Object.values(mapping));
             const score = fields.size + (fields.has('umail') || fields.has('student') ? 2 : 0) + (fields.has('sessionDate') ? 1 : 0);
-            if (!best || score > best.score) best = { score, sheetName, rowIdx, headers, mapping, grid };
+            if (!best || score > best.score) best = { score, sheetName, rowIdx, headers, grid };
         });
     });
-    const allHeaders = best ? best.headers.filter(Boolean) : [];
-    const fields = best ? new Set(Object.values(best.mapping)) : new Set();
-    if (!best || !(fields.has('student') || fields.has('umail'))) {
-        return { rows: [], sheetName: best?.sheetName, headers: allHeaders, mapping: best?.mapping || {}, found: false };
-    }
-    const rows = best.grid.slice(best.rowIdx + 1).map(cells => {
+    if (!best) return { rawRows: [], headers: [], fieldMap: {}, rows: [], found: false };
+    // 제목이 같은 열이 여러 개면 뒤에 번호를 붙여 구분
+    const seen = {};
+    const headers = best.headers.map(h => { if (!h) return ''; seen[h] = (seen[h] || 0) + 1; return seen[h] > 1 ? `${h} (${seen[h]})` : h; });
+    const rawRows = best.grid.slice(best.rowIdx + 1).map(cells => {
         const raw = {};
-        best.headers.forEach((h, i) => { if (h && cells[i] !== '' && cells[i] !== undefined && cells[i] !== null) raw[h] = cells[i]; });
+        headers.forEach((h, i) => { if (h && cells[i] !== '' && cells[i] !== undefined && cells[i] !== null) raw[h] = cells[i]; });
         return raw;
-    }).filter(raw => Object.keys(raw).length)
-      .map(raw => normalizeConsultationRecord(raw, best.mapping))
-      .filter(r => r.sessionDate || r.student || r.umail || r.review);
-    return { rows, sheetName: best.sheetName, headers: allHeaders, mapping: best.mapping, found: true };
+    }).filter(raw => Object.keys(raw).length);
+    const usable = headers.filter(Boolean);
+    const fieldMap = autoMapColumns(usable, rawRows);
+    const found = Boolean(fieldMap.student || fieldMap.umail || (usable.some(isFirstNameHeader) && usable.some(isLastNameHeader)));
+    return { rawRows, headers: usable, fieldMap, rows: found ? applyColumnMap(rawRows, fieldMap) : [], sheetName: best.sheetName, found };
 }
 
 // 중복 판별 키 (공유 DB의 UNIQUE 규칙과 동일): 학생 + 날짜 + 카테고리 + 주제(대소문자·공백 무시)
+// 날짜가 없는 기록은 날짜로 구분할 수 없으므로 메모 내용까지 같아야 같은 상담으로 봄
 function consultRecordKey(rec) {
-    return [consultStudentKey(rec), rec.sessionDate, getConsultCategory(rec).id, String(rec.topic || '').trim().toLowerCase()].join('|');
+    const parts = [consultStudentKey(rec), rec.sessionDate, getConsultCategory(rec).id, String(rec.topic || '').trim().toLowerCase()];
+    if (!rec.sessionDate) parts.push(String(rec.review || '').trim().toLowerCase());
+    return parts.join('|');
 }
 
 // 기존 기록에 새 기록 합치기: 같은 상담이면 새 값으로 갱신, 아니면 추가 (파일 안의 중복도 하나로)
 function mergeConsultationRecords(existing, incoming) {
-    const merged = existing.map(r => normalizeConsultationRecord(r));
+    const merged = existing.map(r => normalizeStoredRecord(r));
     const index = new Map(merged.map((r, i) => [consultRecordKey(r), i]));
     let added = 0, updated = 0;
     incoming.forEach(rec => {
@@ -243,8 +349,8 @@ function consultationStats(records) {
 // _idx(숨김 속성) = window.dbState.consultationData 안의 원래 위치 → 화면에서 수정·삭제할 때 사용
 function getConsultationRecords() {
     return (window.dbState.consultationData || [])
-        .map((raw, i) => Object.defineProperty(normalizeConsultationRecord(raw), '_idx', { value: i }))
-        .filter(r => r.sessionDate || r.student || r.umail || r.review);
+        .map((raw, i) => Object.defineProperty(normalizeStoredRecord(raw), '_idx', { value: i }))
+        .filter(hasContent);
 }
 
 // 실제 기록 입력용 엑셀 양식 (헤더 + 예시 1행)

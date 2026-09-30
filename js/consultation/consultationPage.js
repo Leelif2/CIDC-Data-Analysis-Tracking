@@ -6,8 +6,12 @@ let activeCategory = 'all';
 let editingSessionIdx = null;
 
 const escapeHtml = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-// 학생 구분: uMail 우선 (동명이인 대비), uMail이 없는 기록만 이름으로 묶음
-const studentKey = consultStudentKey;
+// 학생 구분: uMail이 있으면 uMail로 묶고, uMail이 없는 기록은 이름이 같아도 같은 사람인지 알 수 없으므로 따로 표시
+const studentKey = rec => (rec.umail ? `umail:${rec.umail}` : `row:${rec._idx ?? 'new'}`);
+// 이름 비교용: 대소문자·여러 칸 공백 무시
+const nameKey = name => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+// 같은 이름이 두 개 이상의 목록 항목에 쓰인 경우 -> 'Duplicate' 표시
+let duplicateNames = new Set();
 // onclick 인자용: 작은따옴표까지 인코딩 (O'Brien 같은 이름 대비)
 const jsArg = v => encodeURIComponent(v).replace(/'/g, '%27');
 const byDateDesc = (a, b) => (b.sessionDate || '').localeCompare(a.sessionDate || '');
@@ -27,9 +31,15 @@ function starsHtml(value) {
 }
 
 function umailBadgeHtml(umail) {
-    if (!umail) return '<span class="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-lg text-[13px] font-bold"><i class="fa-solid fa-triangle-exclamation"></i> No uMail · matched by name</span>';
+    if (!umail) return '<span class="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-lg text-[13px] font-bold"><i class="fa-solid fa-triangle-exclamation"></i> No uMail</span>';
     const warn = isValidUmail(umail) ? '' : ' <span class="bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-lg text-[12px] font-bold" title="Expected format: u1234567@umail.utah.edu">Check format</span>';
     return `<span class="text-[14px] font-semibold text-blue-700"><i class="fa-regular fa-envelope mr-1.5 text-blue-400"></i>${escapeHtml(umail)}</span>${warn}`;
+}
+
+function duplicateBadgeHtml(name) {
+    return duplicateNames.has(nameKey(name))
+        ? ' <span class="inline-flex items-center gap-1 align-middle bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-lg text-[13px] font-black" title="Another student entry has the same name"><i class="fa-solid fa-clone"></i> Duplicate</span>'
+        : '';
 }
 
 function categoryChipHtml(cat) {
@@ -52,7 +62,13 @@ function groupByStudent(records) {
         g.name = names[0] || g.umail || 'Unknown student';
         g.aliases = names.slice(1);
         return g;
-    }).sort((a, b) => byDateDesc(a.last, b.last));
+    }).sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || byDateDesc(a.last, b.last)); // 이름순
+}
+
+function findDuplicateNames(students) {
+    const counts = new Map();
+    students.forEach(s => { const k = nameKey(s.name); if (k) counts.set(k, (counts.get(k) || 0) + 1); });
+    return new Set([...counts].filter(([, n]) => n > 1).map(([k]) => k));
 }
 
 // 카테고리별 묶음 (CONSULT_CATEGORIES 순서, 사용자 정의 카테고리는 Other 바로 앞)
@@ -76,6 +92,7 @@ function renderConsultationPage() {
     counselorSelect.innerHTML = '<option value="All">All Counselors</option>' + counselors.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
     counselorSelect.value = counselors.includes(prevCounselor) ? prevCounselor : 'All';
 
+    duplicateNames = findDuplicateNames(groupByStudent(all));
     renderSummary(all);
 
     const query = document.getElementById('consult-search').value.trim().toLowerCase();
@@ -98,7 +115,8 @@ function renderConsultationPage() {
 }
 
 function renderSummary(all) {
-    const students = new Set(all.map(studentKey).filter(Boolean));
+    // uMail이 있으면 uMail 수, 없으면 이름 수로 셈
+    const students = new Set(all.map(r => (r.umail ? 'u:' + r.umail : 'n:' + nameKey(r.student))).filter(k => k !== 'n:'));
     const latest = all.map(r => r.sessionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().pop();
     document.getElementById('kpi-sessions').innerText = all.length.toLocaleString();
     document.getElementById('kpi-students').innerText = students.size.toLocaleString();
@@ -122,7 +140,8 @@ function renderCategoryTabs(groups, total) {
 function renderStudentList(students, categoryLabel) {
     const list = document.getElementById('student-list');
     document.getElementById('student-count').innerText = `${students.length} student${students.length === 1 ? '' : 's'}`;
-    document.getElementById('list-caption').innerText = categoryLabel ? `Grouped by student · ${categoryLabel}` : 'Grouped by student';
+    const dupCount = students.filter(s => duplicateNames.has(nameKey(s.name))).length;
+    document.getElementById('list-caption').innerText = ['Sorted by name', categoryLabel, dupCount ? `${dupCount} with duplicate names` : ''].filter(Boolean).join(' · ');
     if (!students.length) {
         list.innerHTML = '<div class="border border-dashed border-slate-300 rounded-3xl p-8 text-center text-[16px] text-slate-500 font-medium">No students match this search.</div>';
         return;
@@ -134,7 +153,7 @@ function renderStudentList(students, categoryLabel) {
         <button onclick="selectStudent('${jsArg(s.key)}')" class="w-full text-left bg-white border rounded-3xl p-5 md:p-6 transition-all ${active ? 'border-blue-400 ring-2 ring-blue-100 shadow-sm' : 'border-slate-200 hover:border-blue-300 hover:shadow-sm'}">
             <div class="flex justify-between items-start gap-3">
                 <div class="min-w-0 space-y-1">
-                    <div class="text-[22px] font-black text-slate-900 leading-tight truncate">${escapeHtml(s.name)}</div>
+                    <div class="text-[22px] font-black text-slate-900 leading-tight">${escapeHtml(s.name)}${duplicateBadgeHtml(s.name)}</div>
                     <div>${umailBadgeHtml(s.umail)}</div>
                 </div>
                 <span class="shrink-0 bg-blue-50 text-blue-700 px-3.5 py-1.5 rounded-full text-[14px] font-black">${s.sessions.length} session${s.sessions.length === 1 ? '' : 's'}</span>
@@ -171,7 +190,7 @@ function renderStudentDetail(all) {
             <div class="flex items-center gap-4 min-w-0">
                 <div class="w-14 h-14 shrink-0 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center text-[18px] font-black">${escapeHtml(initials)}</div>
                 <div class="min-w-0 space-y-1">
-                    <h3 class="text-[24px] font-black text-slate-900 leading-tight truncate">${escapeHtml(student.name)}</h3>
+                    <h3 class="text-[24px] font-black text-slate-900 leading-tight">${escapeHtml(student.name)}${duplicateBadgeHtml(student.name)}</h3>
                     <div>${umailBadgeHtml(student.umail)}</div>
                     ${student.aliases.length ? `<p class="text-[14px] text-amber-700 font-bold">Also recorded as: ${escapeHtml(student.aliases.join(', '))}</p>` : ''}
                 </div>
@@ -282,15 +301,16 @@ function saveSession(evt) {
     new FormData(evt.target).forEach((value, key) => {
         raw[key.startsWith('extra:') ? key.slice(6) : key] = typeof value === 'string' ? value.trim() : value;
     });
-    const record = normalizeConsultationRecord(raw);
+    const record = normalizeStoredRecord(raw);
     const isNew = editingSessionIdx === 'new';
     if (isNew) window.dbState.consultationData.unshift(record);
     else window.dbState.consultationData[editingSessionIdx] = record;
     window.saveStateToStorage();
 
-    // uMail·이름을 고친 경우 학생 키가 바뀌므로 수정된 학생으로 다시 선택
+    // uMail·이름을 고친 경우 학생 키가 바뀌므로 수정된 학생으로 다시 선택 (uMail이 없으면 그 행)
+    const savedIdx = isNew ? 0 : editingSessionIdx;
     editingSessionIdx = null;
-    selectedStudentKey = studentKey(record);
+    selectedStudentKey = record.umail ? `umail:${record.umail}` : `row:${savedIdx}`;
     history.replaceState(null, '', `#student=${encodeURIComponent(selectedStudentKey)}`);
     renderConsultationPage();
     showConsultToast(isNew ? `Added a session for ${record.student}.` : `Saved changes to the ${formatDate(record.sessionDate)} session.`);
@@ -303,8 +323,8 @@ function deleteSession(idx) {
     window.dbState.consultationData.splice(idx, 1);
     window.saveStateToStorage();
     editingSessionIdx = null;
-    // 이 학생의 마지막 기록이었다면 상세 패널을 닫음
-    if (!getConsultationRecords().some(r => studentKey(r) === selectedStudentKey)) selectStudent(null);
+    // 이 학생의 마지막 기록이었거나, 행 번호로 구분하던 항목(uMail 없음)이면 번호가 밀리므로 상세 패널을 닫음
+    if (String(selectedStudentKey).startsWith('row:') || !getConsultationRecords().some(r => studentKey(r) === selectedStudentKey)) selectStudent(null);
     else renderConsultationPage();
     showConsultToast('Session deleted.');
 }
@@ -331,8 +351,17 @@ function showConsultToast(message) {
     showConsultToast.timer = setTimeout(() => toast.classList.add('hidden'), 5000);
 }
 
-// Upload File: 파일을 읽어 미리보기를 보여주고, '기존 기록에 추가' 또는 '전체 교체'를 고르게 함
-let pendingImport = null;
+// ---------------------------------------------------------------------
+// 열 매칭 화면 (Upload File / Fix Columns 공용)
+// 어느 열이 이름·uMail·날짜인지 자동으로 고른 뒤, 표본 값과 미리보기를 보여주고 직접 바꿀 수 있게 함
+// ---------------------------------------------------------------------
+let mapper = null; // { mode: 'import' | 'fix', title, rawRows, headers, labels, fieldMap }
+
+const MAPPER_FIELDS = [
+    ['student', 'Student Name', true], ['umail', 'uMail', true], ['sessionDate', 'Session Date', false],
+    ['counselor', 'Counselor', false], ['category', 'Category', false], ['topic', 'Topic', false],
+    ['rating', 'Rating', false], ['review', 'Notes / Review', false]
+];
 
 function handleConsultUpload(evt) {
     const file = evt.target.files[0];
@@ -344,78 +373,139 @@ function handleConsultUpload(evt) {
         try {
             parsed = parseConsultationWorkbook(XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true }));
         } catch (err) {
-            showImportModal(`Couldn't read "${file.name}"`, `<p>This file couldn't be opened as a spreadsheet. Please upload an <b>.xlsx</b>, <b>.xls</b> or <b>.csv</b> file.</p>`, []);
+            showImportModal(`Couldn't read "${file.name}"`, '<p>This file couldn\'t be opened as a spreadsheet. Please upload an <b>.xlsx</b>, <b>.xls</b> or <b>.csv</b> file.</p>',
+                [{ label: 'OK', style: 'bg-blue-600 text-white', action: 'closeImportModal()' }]);
             return;
         }
-        if (!parsed.rows.length) { showImportProblem(file.name, parsed); return; }
-        showImportPreview(file.name, parsed);
+        if (!parsed.headers.length || !parsed.rawRows.length) {
+            showImportModal(`No data found in "${file.name}"`, '<p>The file looks empty. Please check that the sheet has a header row and at least one record.</p>',
+                [{ label: 'OK', style: 'bg-blue-600 text-white', action: 'closeImportModal()' }]);
+            return;
+        }
+        openColumnMapper({ mode: 'import', title: `Import "${file.name}"`, rawRows: parsed.rawRows, headers: parsed.headers, labels: {}, fieldMap: parsed.fieldMap });
     };
     reader.readAsArrayBuffer(file);
 }
 
-const fieldLabel = f => CONSULT_FIELD_LABELS[f] || f;
-
-// 읽을 수 있는 열을 못 찾았을 때: 파일에 있던 열 이름과 필요한 열을 보여줌
-function showImportProblem(fileName, parsed) {
-    const found = parsed.headers.length
-        ? parsed.headers.map(h => `<span class="inline-block bg-slate-100 border border-slate-200 rounded-lg px-2 py-0.5 m-0.5 text-[14px]">${escapeHtml(h)}</span>`).join('')
-        : '<i>No column names found</i>';
-    showImportModal(`No records found in "${fileName}"`, `
-        <p>The file needs a column for the <b>student</b> — <b>uMail</b> (recommended) or <b>Student Name</b> — plus ideally a <b>Session Date</b>.</p>
-        <div><p class="font-bold text-slate-900 mb-1">Columns found${parsed.sheetName ? ` in sheet "${escapeHtml(parsed.sheetName)}"` : ''}:</p>${found}</div>
-        <div class="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-[14px]">
-            <b>How to fix:</b> rename the columns to <b>Session Date, Student, uMail, Counselor, Category, Topic, Rating, Review</b>
-            (these also work: Date, Name, Email, Notes…), or click <b>Download Template</b> and paste your data into it.
-        </div>`, [
-        { label: 'Download Template', style: 'bg-white text-slate-800 border border-slate-300', action: 'downloadConsultationTemplate()' },
-        { label: 'OK', style: 'bg-blue-600 text-white', action: 'closeImportModal()' }
-    ]);
+// 이미 불러온 기록의 열을 다시 맞추기 (다시 업로드할 필요 없음)
+function openFixColumns() {
+    const rawRows = window.dbState.consultationData.map(r => ({ ...r }));
+    if (!rawRows.length) { showConsultToast('There are no records to fix yet.'); return; }
+    const headers = [...new Set(rawRows.flatMap(r => Object.keys(r)))];
+    const labels = {};
+    headers.forEach(h => { if (CONSULT_FIELDS.includes(h)) labels[h] = `${CONSULT_FIELD_LABELS[h]} (current)`; });
+    openColumnMapper({ mode: 'fix', title: `Fix columns for ${rawRows.length} records`, rawRows, headers, labels, fieldMap: autoMapColumns(headers, rawRows) });
 }
 
-// 미리보기: 몇 건이 새로 추가되고 몇 건이 기존 기록을 갱신하는지, 빠진 정보는 무엇인지
-function showImportPreview(fileName, parsed) {
-    const current = window.dbState.consultationData;
-    const { added, updated } = mergeConsultationRecords(current, parsed.rows);
-    const noUmail = parsed.rows.filter(r => !r.umail).length;
-    const badUmail = parsed.rows.filter(r => r.umail && !isValidUmail(r.umail)).length;
-    const noDate = parsed.rows.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.sessionDate)).length;
-    const mapped = Object.entries(parsed.mapping)
-        .map(([h, f]) => `<li><span class="text-slate-500">${escapeHtml(h)}</span> → <b>${escapeHtml(fieldLabel(f))}</b></li>`).join('');
-    const warn = (n, text) => n ? `<li class="text-amber-700"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${n} ${text}</li>` : '';
-    pendingImport = parsed;
-    showImportModal(`Import ${parsed.rows.length} records from "${fileName}"`, `
-        <div class="grid grid-cols-2 gap-2">
-            <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3"><div class="text-[26px] font-black text-emerald-700">${added}</div><div class="text-[14px] font-bold text-emerald-800">new sessions</div></div>
-            <div class="bg-blue-50 border border-blue-200 rounded-2xl p-3"><div class="text-[26px] font-black text-blue-700">${updated}</div><div class="text-[14px] font-bold text-blue-800">already here (will be updated, not duplicated)</div></div>
-        </div>
-        ${noUmail || badUmail || noDate ? `<ul class="space-y-1 text-[14px] font-semibold">${warn(noUmail, 'record(s) have no uMail — these students are matched by name')}${warn(badUmail, 'record(s) have a uMail in the wrong format')}${warn(noDate, 'record(s) have no readable session date')}</ul>` : ''}
-        <details class="text-[14px]"><summary class="cursor-pointer font-bold text-slate-600">Columns read from sheet "${escapeHtml(parsed.sheetName)}"</summary><ul class="mt-2 space-y-0.5">${mapped}</ul></details>
-        ${current.length ? `<p class="text-[14px] text-slate-500">You currently have ${current.length} records. <b>Add to existing</b> keeps them; <b>Replace all</b> deletes them and keeps only this file.</p>` : ''}`, [
-        { label: 'Cancel', style: 'bg-white text-slate-700 border border-slate-300', action: 'closeImportModal()' },
-        ...(current.length ? [{ label: 'Replace all', style: 'bg-white text-rose-700 border border-rose-300', action: "applyImport('replace')" }] : []),
-        { label: current.length ? 'Add to existing' : 'Import', style: 'bg-blue-600 text-white', action: "applyImport('merge')" }
-    ]);
+function openColumnMapper(state) {
+    mapper = state;
+    renderColumnMapper();
+    document.getElementById('import-modal').classList.replace('hidden', 'flex');
 }
 
-function applyImport(mode) {
-    if (!pendingImport) return;
-    const rows = pendingImport.rows;
-    if (mode === 'replace' && !confirm(`Delete all ${window.dbState.consultationData.length} current records and keep only the ${rows.length} from this file?`)) return;
+function setMapperField(field, header) {
+    if (!mapper) return;
+    // 한 열은 한 필드에만: 다른 필드가 같은 열을 쓰고 있으면 비움
+    if (header) Object.keys(mapper.fieldMap).forEach(f => { if (mapper.fieldMap[f] === header) mapper.fieldMap[f] = null; });
+    mapper.fieldMap[field] = header || null;
+    renderColumnMapper();
+}
+
+function renderColumnMapper() {
+    const m = mapper;
+    const rows = applyColumnMap(m.rawRows, m.fieldMap);
+    const label = h => m.labels[h] || h;
+    // 이름(또는 First+Last Name)이나 uMail이 한 건이라도 읽히면 진행 가능
+    const hasKey = rows.some(r => r.student || r.umail);
+
+    const selects = MAPPER_FIELDS.map(([field, title, important]) => {
+        const chosen = m.fieldMap[field];
+        const samples = chosen ? profileColumn(m.rawRows.map(r => r[chosen])).samples : [];
+        return `
+            <label class="block bg-white border ${important && !chosen ? 'border-amber-300' : 'border-slate-200'} rounded-2xl p-3">
+                <span class="block text-[14px] font-black text-slate-800 mb-1.5">${title}${important ? ' <span class="text-rose-600">*</span>' : ''}</span>
+                <select onchange="setMapperField('${field}', this.value)" class="session-input !text-[15px]">
+                    <option value="">— Not in this file —</option>
+                    ${m.headers.map(h => `<option value="${escapeHtml(h)}" ${chosen === h ? 'selected' : ''}>${escapeHtml(label(h))}</option>`).join('')}
+                </select>
+                <span class="block text-[13px] text-slate-500 mt-1.5 truncate">${samples.length ? 'e.g. ' + samples.map(v => `“${escapeHtml(String(v).slice(0, 40))}”`).join(', ') : '&nbsp;'}</span>
+            </label>`;
+    }).join('');
+
+    // 미리보기와 확인 수치
+    const noUmail = rows.filter(r => !r.umail).length;
+    const noDate = rows.filter(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.sessionDate)).length;
+    const previewRows = rows.slice(0, 6).map(r => `
+        <tr class="border-t border-slate-200">
+            <td class="p-2 font-bold text-slate-900">${escapeHtml(r.student || '—')}</td>
+            <td class="p-2 ${r.umail ? 'text-blue-700' : 'text-amber-700 font-bold'}">${escapeHtml(r.umail || 'No uMail')}</td>
+            <td class="p-2 whitespace-nowrap">${escapeHtml(r.sessionDate ? formatDate(r.sessionDate) : 'No date')}</td>
+            <td class="p-2">${escapeHtml(r.counselor || '')}</td>
+            <td class="p-2">${escapeHtml(getConsultCategory(r).label)}</td>
+            <td class="p-2 max-w-[220px] truncate text-slate-500">${escapeHtml(r.topic || r.review || '')}</td>
+        </tr>`).join('');
+
+    let summary;
+    if (m.mode === 'import') {
+        const { added, updated } = mergeConsultationRecords(window.dbState.consultationData, rows);
+        summary = `<b>${rows.length}</b> records read · <b class="text-emerald-700">${added} new</b> · <b class="text-blue-700">${updated} already here</b> (updated, not duplicated)`;
+    } else {
+        summary = `<b>${rows.length}</b> records will be rebuilt with these columns. Nothing is deleted — columns you don't pick are kept as extra details.`;
+    }
+    const warns = [
+        noUmail ? `${noUmail} without uMail (shown as “No uMail”)` : '',
+        noDate ? `${noDate} without a readable date` : ''
+    ].filter(Boolean).join(' · ');
+
+    document.getElementById('import-title').innerText = m.title;
+    document.getElementById('import-body').innerHTML = `
+        <p class="text-[15px]">Check that each box points to the right column. The examples under each box show what's in that column.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${selects}</div>
+        ${hasKey ? '' : '<p class="bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl px-4 py-3 font-bold">Pick the Student Name or uMail column to continue.</p>'}
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2">
+            <p class="text-[15px]">${summary}</p>
+            ${warns ? `<p class="text-[14px] font-semibold text-amber-700"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${warns}</p>` : ''}
+            <div class="overflow-x-auto"><table class="w-full text-left text-[13px]">
+                <thead class="text-slate-500 font-black"><tr><th class="p-2">Name</th><th class="p-2">uMail</th><th class="p-2">Date</th><th class="p-2">Counselor</th><th class="p-2">Category</th><th class="p-2">Topic / Notes</th></tr></thead>
+                <tbody>${previewRows}</tbody>
+            </table></div>
+            <p class="text-[13px] text-slate-400">Preview of the first ${Math.min(6, rows.length)} records</p>
+        </div>`;
+
+    const current = window.dbState.consultationData.length;
+    const actions = [{ label: 'Cancel', style: 'bg-white text-slate-700 border border-slate-300', action: 'closeImportModal()' }];
+    if (hasKey && m.mode === 'import') {
+        if (current) actions.push({ label: 'Replace all', style: 'bg-white text-rose-700 border border-rose-300', action: "applyColumnMapper('replace')" });
+        actions.push({ label: current ? 'Add to existing' : 'Import', style: 'bg-blue-600 text-white', action: "applyColumnMapper('merge')" });
+    }
+    if (hasKey && m.mode === 'fix') actions.push({ label: `Apply to ${rows.length} records`, style: 'bg-blue-600 text-white', action: "applyColumnMapper('fix')" });
+    document.getElementById('import-actions').innerHTML = actions
+        .map(a => `<button onclick="${a.action}" class="consult-btn !text-[15px] ${a.style}">${escapeHtml(a.label)}</button>`).join('');
+}
+
+function applyColumnMapper(mode) {
+    if (!mapper) return;
+    const rows = applyColumnMap(mapper.rawRows, mapper.fieldMap);
+    const current = window.dbState.consultationData.length;
     let message;
     if (mode === 'replace') {
+        if (!confirm(`Delete all ${current} current records and keep only the ${rows.length} from this file?`)) return;
         window.dbState.consultationData = mergeConsultationRecords([], rows).records;
         message = `Replaced all records with ${window.dbState.consultationData.length} from the file.`;
+    } else if (mode === 'fix') {
+        window.dbState.consultationData = rows;
+        message = `Updated ${rows.length} records with the new columns.`;
     } else {
         const result = mergeConsultationRecords(window.dbState.consultationData, rows);
         window.dbState.consultationData = result.records;
         message = `Added ${result.added} new session(s)${result.updated ? ` and updated ${result.updated} existing` : ''}.`;
     }
     window.saveStateToStorage();
-    pendingImport = null;
     closeImportModal();
     selectedStudentKey = null;
     editingSessionIdx = null;
     activeCategory = 'all';
+    history.replaceState(null, '', location.pathname);
     renderConsultationPage();
     showConsultToast(message);
 }
@@ -429,7 +519,7 @@ function showImportModal(title, bodyHtml, actions) {
 }
 
 function closeImportModal() {
-    pendingImport = null;
+    mapper = null;
     document.getElementById('import-modal').classList.replace('flex', 'hidden');
 }
 

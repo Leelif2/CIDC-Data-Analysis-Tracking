@@ -72,7 +72,7 @@ function submitNewRecord(e) {
     const newObj = {};
     new FormData(e.target).forEach((val, key) => newObj[key] = val);
     const isConsultation = window.dbState.activeExcelSheet === 'Consultation';
-    window.getActiveSheetData().unshift(isConsultation ? normalizeConsultationRecord(newObj) : newObj);
+    window.getActiveSheetData().unshift(isConsultation ? normalizeStoredRecord(newObj) : newObj);
     e.target.reset();
     window.saveStateToStorage();
     if (typeof updateTabCounts === 'function') updateTabCounts();
