@@ -28,13 +28,42 @@ if (args.includes('--secret')) {
 }
 
 function ask(question, { hidden = false } = {}) {
+    if (hidden && process.stdin.isTTY) return askHidden(question);
     return new Promise(resolve => {
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-        if (hidden) {
-            // 입력한 글자를 화면에 표시하지 않음
-            rl._writeToOutput = text => { if (!text.includes(question)) return; rl.output.write(text); };
-        }
-        rl.question(question, answer => { rl.close(); if (hidden) process.stdout.write('\n'); resolve(answer); });
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: !hidden });
+        rl.question(question, answer => { rl.close(); resolve(answer); });
+    });
+}
+
+// 비밀번호 입력: 터미널을 raw 모드로 두고 글자를 직접 받아서, 타이핑·붙여넣기 모두 화면에 절대 표시하지 않음
+// (입력 길이도 드러나지 않게 * 도 찍지 않음)
+function askHidden(question) {
+    return new Promise(resolve => {
+        const stdin = process.stdin;
+        process.stdout.write(question);
+        stdin.setRawMode(true);
+        stdin.resume();
+        stdin.setEncoding('utf8');
+        let value = '';
+        let escape = false; // 화살표 키 같은 제어 시퀀스(ESC [ A 등)는 무시
+        const onData = chunk => {
+            for (const ch of chunk) {
+                if (escape) { if (/[A-Za-z~]/.test(ch)) escape = false; continue; }
+                if (ch === '\u001b') { escape = true; continue; }
+                if (ch === '\r' || ch === '\n') {
+                    stdin.removeListener('data', onData);
+                    stdin.setRawMode(false);
+                    stdin.pause();
+                    process.stdout.write('\n');
+                    resolve(value);
+                    return;
+                }
+                if (ch === '\u0003') { process.stdout.write('\n'); process.exit(130); }  // Ctrl+C
+                if (ch === '\u007f' || ch === '\b') { value = value.slice(0, -1); continue; } // Backspace
+                if (ch >= ' ') value += ch;
+            }
+        };
+        stdin.on('data', onData);
     });
 }
 
@@ -128,3 +157,4 @@ for (;;) {
 const updating = email in accounts;
 accounts[email] = await hashPassword(password);
 saveAndShow(accounts, `${updating ? 'Reset the password for' : 'Added'} ${email}.`);
+process.exit(0);
