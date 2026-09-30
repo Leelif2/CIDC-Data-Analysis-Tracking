@@ -145,10 +145,11 @@ if (checkIdx !== -1) {
     const [, iter, salt, hash] = accounts[email].split('$');
     const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
     const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: Buffer.from(salt, 'base64url'), iterations: Number(iter) }, key, 256);
-    console.log(b64url(new Uint8Array(bits)) === hash
+    const matched = b64url(new Uint8Array(bits)) === hash;
+    console.log(matched
         ? '\nMATCH — this password is correct for the saved account.'
         : '\nNO MATCH — this is not the saved password. Reset it with: node tools/hash-password.mjs');
-    process.exit(0);
+    process.exit(matched ? 0 : 2); // 스크립트에서 결과를 알 수 있게 종료 코드로도 알림
 }
 
 if (args.includes('--list')) {
