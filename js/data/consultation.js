@@ -1,17 +1,47 @@
 // 상담 기록(Consultation 시트) 표준 형식 & 집계
-// 한 행 = 상담 1건: { sessionDate, student, umail, counselor, topic, rating, review }
+// 한 행 = 상담 1건: { sessionDate, student, umail, counselor, category, topic, rating, review }
 // 학생 구분은 uMail 기준 (동명이인 대비). uMail이 없는 기록만 이름으로 묶음
-const CONSULT_FIELDS = ['sessionDate', 'student', 'umail', 'counselor', 'topic', 'rating', 'review'];
+const CONSULT_FIELDS = ['sessionDate', 'student', 'umail', 'counselor', 'category', 'topic', 'rating', 'review'];
 
 const CONSULT_FIELD_LABELS = {
     sessionDate: 'Session Date',
     student: 'Student',
     umail: 'uMail',
     counselor: 'Counselor',
+    category: 'Category',
     topic: 'Topic',
     rating: 'Rating (1–5)',
     review: 'Review'
 };
+
+// 상담 카테고리: Category 열이 있으면 그 값을, 없으면 Topic 키워드로 자동 분류 (위에서부터 먼저 맞는 것)
+const CONSULT_CATEGORIES = [
+    { id: 'visa', label: 'OPT / Visa', icon: 'fa-passport', pattern: /\b(opt|cpt|visa|f-?1|ead|i-20|sevis|immigration|work authori[sz]ation)\b/i,
+      chip: 'bg-teal-50 text-teal-700 border-teal-200', active: 'bg-teal-600 text-white border-teal-600' },
+    { id: 'interview', label: 'Interview Prep', icon: 'fa-user-tie', pattern: /\b(interview|mock|tech screen)/i,
+      chip: 'bg-violet-50 text-violet-700 border-violet-200', active: 'bg-violet-600 text-white border-violet-600' },
+    { id: 'resume', label: 'Resume & Cover Letter', icon: 'fa-file-lines', pattern: /\b(resume|résumé|cv|cover letter|portfolio)/i,
+      chip: 'bg-blue-50 text-blue-700 border-blue-200', active: 'bg-blue-600 text-white border-blue-600' },
+    { id: 'job', label: 'Job Search & Networking', icon: 'fa-briefcase', pattern: /\b(job|internship|network|linkedin|career fair|application|offer|recruit|employer)/i,
+      chip: 'bg-amber-50 text-amber-700 border-amber-200', active: 'bg-amber-500 text-white border-amber-500' },
+    { id: 'career', label: 'Career Planning', icon: 'fa-compass', pattern: /\b(career|plan|major|graduate|goal|path)/i,
+      chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', active: 'bg-emerald-600 text-white border-emerald-600' },
+    { id: 'other', label: 'Other', icon: 'fa-comments', pattern: null,
+      chip: 'bg-slate-100 text-slate-700 border-slate-200', active: 'bg-slate-700 text-white border-slate-700' }
+];
+
+function getConsultCategory(rec) {
+    const given = String(rec.category || '').trim();
+    if (given) {
+        const lower = given.toLowerCase();
+        const known = CONSULT_CATEGORIES.find(c => c.id === lower || c.label.toLowerCase() === lower)
+            || CONSULT_CATEGORIES.find(c => c.pattern && c.pattern.test(given));
+        if (known) return known;
+        // 목록에 없는 카테고리는 적힌 이름 그대로 새 카테고리로
+        return { ...CONSULT_CATEGORIES[CONSULT_CATEGORIES.length - 1], id: `custom:${lower}`, label: given };
+    }
+    return CONSULT_CATEGORIES.find(c => c.pattern && c.pattern.test(rec.topic || '')) || CONSULT_CATEGORIES[CONSULT_CATEGORIES.length - 1];
+}
 
 // 엑셀 헤더(대소문자·공백 무시) -> 표준 필드명
 const CONSULT_HEADER_ALIASES = {
@@ -19,7 +49,8 @@ const CONSULT_HEADER_ALIASES = {
     student: ['student', 'studentname', 'name'],
     umail: ['umail', 'uemail', 'email', 'studentemail', 'studentumail', 'emailaddress'],
     counselor: ['counselor', 'counsellor', 'advisor', 'consultant'],
-    topic: ['topic', 'subject', 'category'],
+    category: ['category', 'type', 'consultationtype', 'sessiontype'],
+    topic: ['topic', 'subject'],
     rating: ['rating', 'score', 'satisfaction', 'stars'],
     review: ['review', 'feedback', 'comment', 'comments']
 };
@@ -124,7 +155,7 @@ function getConsultationRecords() {
 // 실제 기록 입력용 엑셀 양식 (헤더 + 예시 1행)
 function downloadConsultationTemplate() {
     const rows = [{
-        'Session Date': '2026-03-15', 'Student': 'Jane Doe', 'uMail': 'u1234567@umail.utah.edu', 'Counselor': 'Dr. Robert Carter',
+        'Session Date': '2026-03-15', 'Student': 'Jane Doe', 'uMail': 'u1234567@umail.utah.edu', 'Counselor': 'Dr. Robert Carter', 'Category': 'OPT / Visa',
         'Topic': 'OPT Filing & Resume Review', 'Rating': 5, 'Review': 'The session made the OPT application process clear.'
     }];
     const wb = XLSX.utils.book_new();

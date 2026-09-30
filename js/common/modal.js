@@ -37,6 +37,7 @@ function consultationFormField(k) {
     if (k === 'sessionDate') input = `<input type="date" name="${k}" required value="${toIsoDate(new Date())}" class="${FORM_INPUT_CLASS}">`;
     else if (k === 'student') input = `<input type="text" name="${k}" required class="${FORM_INPUT_CLASS}">`;
     else if (k === 'umail') input = `<input type="email" name="${k}" required pattern="[uU][0-9]{7}@umail\\.utah\\.edu" placeholder="u1234567@umail.utah.edu" title="Format: u1234567@umail.utah.edu" class="${FORM_INPUT_CLASS}">`;
+    else if (k === 'category') input = `<select name="${k}" class="${FORM_INPUT_CLASS}"><option value="">Auto (from topic)</option>${CONSULT_CATEGORIES.map(c => `<option value="${c.label}">${c.label}</option>`).join('')}</select>`;
     else if (k === 'rating') input = `<select name="${k}" class="${FORM_INPUT_CLASS}"><option value="">-</option>${[5, 4, 3, 2, 1].map(n => `<option value="${n}">${'★'.repeat(n)} (${n})</option>`).join('')}</select>`;
     else if (k === 'review') input = `<textarea name="${k}" rows="3" class="${FORM_INPUT_CLASS}"></textarea>`;
     return `
@@ -76,6 +77,7 @@ function submitNewRecord(e) {
     window.saveStateToStorage();
     if (typeof updateTabCounts === 'function') updateTabCounts();
     if (typeof renderExcelTable === 'function') renderExcelTable();
+    if (typeof renderConsultationPage === 'function') renderConsultationPage();
     closeAddRowModal();
     if (typeof showSyncToast === 'function') showSyncToast();
 }

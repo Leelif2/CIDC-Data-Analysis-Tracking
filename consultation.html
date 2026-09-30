@@ -3,122 +3,122 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CIDC - Consultation</title>
+    <title>CIDC - Consultation Records</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="css/common.css">
     <link rel="stylesheet" href="css/dashboard.css">
 </head>
-<body class="min-h-screen flex flex-col p-3 md:p-6 space-y-4">
+<body class="consult-page min-h-screen flex flex-col p-3 md:p-6 space-y-5">
 
     <!-- HEADER -->
-    <header class="w-full bg-white border border-slate-200 rounded-2xl p-[20px] flex flex-col md:flex-row justify-between items-center gap-3 shadow-sm">
-        <a href="dashboard.html" class="flex items-center shrink-0" title="Go to Dashboard">
-            <h1 class="m-0"><img src="assets/cidc-logo.png" alt="Career &amp; Internship Development Center — Asia Campus, The University of Utah" class="h-11 w-auto"></h1>
+    <header class="w-full bg-white border border-slate-200 rounded-3xl px-5 py-7 flex flex-col items-center gap-5 shadow-sm">
+        <a href="dashboard.html" class="shrink-0" title="Go to Dashboard">
+            <img src="assets/cidc-logo.png" alt="Career &amp; Internship Development Center — Asia Campus, The University of Utah" class="h-10 w-auto">
         </a>
-
-        <nav class="flex flex-wrap justify-center items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
-            <a href="dashboard.html" class="nav-btn flex items-center gap-2"><i class="fa-solid fa-chart-pie text-[10px]"></i> <span>Dashboard</span></a>
-            <a href="data-management.html" class="nav-btn flex items-center gap-2"><i class="fa-solid fa-table-list text-[10px]"></i> <span>Excel List</span></a>
-            <a href="career-path.html" class="nav-btn flex items-center gap-2"><i class="fa-solid fa-user-graduate text-[10px]"></i> <span>Student Career Path</span></a>
-            <a href="consultation.html" class="nav-btn active flex items-center gap-2"><i class="fa-solid fa-comments text-[10px]"></i> <span>Consultation</span></a>
-        </nav>
-        <div class="order-first self-end md:order-none md:self-auto flex items-center gap-2">
-            <div class="hidden xl:flex items-center gap-2 text-[10px] font-bold text-slate-700 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-                <span class="relative flex h-2.5 w-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>
-                <span id="current-timestamp">Live Sync Active</span>
+        <div class="flex items-center gap-4">
+            <div class="w-14 h-14 shrink-0 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center text-2xl shadow-md"><i class="fa-solid fa-comments"></i></div>
+            <div>
+                <h1 class="text-[24px] font-black text-slate-900 leading-tight">CIDC Consultation Records</h1>
+                <p class="text-[15px] font-semibold text-slate-500">Every student's consultation history in one place</p>
             </div>
         </div>
+        <nav class="nav-lg flex flex-wrap justify-center items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+            <a href="dashboard.html" class="nav-btn flex items-center gap-2"><i class="fa-solid fa-chart-pie"></i> <span>Dashboard</span></a>
+            <a href="data-management.html" class="nav-btn flex items-center gap-2"><i class="fa-solid fa-table-list"></i> <span>Excel List</span></a>
+            <a href="career-path.html" class="nav-btn flex items-center gap-2"><i class="fa-solid fa-user-graduate"></i> <span>Student Career Path</span></a>
+            <a href="consultation.html" class="nav-btn active flex items-center gap-2"><i class="fa-solid fa-comments"></i> <span>Consultation Records</span></a>
+        </nav>
     </header>
 
-    <main class="flex-grow w-full space-y-4">
+    <main class="flex-grow w-full space-y-5">
 
-        <!-- FILTER BAR -->
-        <div class="exec-card flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+        <!-- SUMMARY -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div class="summary-card border-l-[5px] border-l-blue-600">
+                <span class="summary-label">Total Sessions</span>
+                <span id="kpi-sessions" class="summary-value">-</span>
+                <span class="summary-hint">Number of recorded consultations</span>
+            </div>
+            <div class="summary-card border-l-[5px] border-l-emerald-500">
+                <span class="summary-label">Students Counseled</span>
+                <span id="kpi-students" class="summary-value">-</span>
+                <span class="summary-hint">Students with at least one session</span>
+            </div>
+            <div class="summary-card border-l-[5px] border-l-amber-500">
+                <span class="summary-label">Most Recent Session</span>
+                <span id="kpi-latest" class="summary-value">-</span>
+                <span class="summary-hint">Latest date among all records</span>
+            </div>
+        </div>
+
+        <!-- RECORDS -->
+        <section class="bg-white border border-slate-200 rounded-3xl shadow-sm p-5 md:p-8 space-y-6">
+            <div class="space-y-4">
+                <div>
+                    <h2 class="text-[26px] font-black text-slate-900">Student Consultation Records</h2>
+                    <p class="text-[16px] text-slate-500 font-medium mt-1">Click a student to see every consultation they've had.</p>
+                </div>
+                <div class="flex flex-wrap gap-3">
+                    <label class="consult-btn bg-blue-600 hover:bg-blue-500 text-white cursor-pointer">
+                        <i class="fa-solid fa-upload"></i> Upload File
+                        <input type="file" accept=".xlsx, .xls, .csv" onchange="handleConsultUpload(event)" class="hidden">
+                    </label>
+                    <button onclick="openConsultRecordForm()" class="consult-btn bg-emerald-600 hover:bg-emerald-500 text-white"><i class="fa-solid fa-plus"></i> Add Record</button>
+                    <button onclick="exportConsultationsCsv()" class="consult-btn bg-white hover:bg-slate-50 text-slate-800 border border-slate-300"><i class="fa-solid fa-download"></i> Export CSV</button>
+                    <button onclick="downloadConsultationTemplate()" class="consult-btn bg-white hover:bg-slate-50 text-slate-500 border border-dashed border-slate-300"><i class="fa-solid fa-file-excel"></i> Template</button>
+                </div>
+                <div id="consult-toast" class="hidden bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl text-[14px] font-bold"></div>
+            </div>
+
+            <hr class="border-slate-200">
+
+            <div class="flex flex-col md:flex-row gap-3">
+                <div class="relative flex-grow">
+                    <i class="fa-solid fa-magnifying-glass absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]"></i>
+                    <input type="text" id="consult-search" oninput="renderConsultationPage()" placeholder="Search by name, uMail, topic or notes" class="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-[16px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <select id="filter-counselor" onchange="renderConsultationPage()" class="md:w-64 px-5 py-4 bg-white border border-slate-200 rounded-2xl text-[16px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+            </div>
+
+            <!-- CATEGORY TABS -->
             <div>
-                <span class="text-[10px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md uppercase tracking-wider">Consultation Center</span>
-                <h2 class="text-[14px] font-black text-slate-900 mt-2">Student Consultation Records</h2>
-                <p class="text-[10px] text-slate-500 font-semibold">Students are identified by uMail. Pick one to see every session, counselor note and rating in one place.</p>
-            </div>
-            <div class="flex flex-wrap items-end gap-2">
-                <div class="relative w-full sm:w-56">
-                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]"></i>
-                    <input type="text" id="consult-search" oninput="renderConsultationPage()" placeholder="Search name, uMail, topic or review..." class="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500">
-                </div>
-                <label class="filter-field">
-                    <span>Year</span>
-                    <select id="filter-year" onchange="renderConsultationPage()"></select>
-                </label>
-                <label class="filter-field">
-                    <span>Season</span>
-                    <select id="filter-season" onchange="renderConsultationPage()">
-                        <option value="All">All Seasons</option>
-                        <option value="Spring">Spring</option>
-                        <option value="Summer">Summer</option>
-                        <option value="Fall">Fall</option>
-                    </select>
-                </label>
-                <label class="filter-field">
-                    <span>Counselor</span>
-                    <select id="filter-counselor" onchange="renderConsultationPage()"></select>
-                </label>
-                <button onclick="resetConsultFilters()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] rounded-xl border border-slate-200"><i class="fa-solid fa-rotate-left"></i> Reset</button>
-                <button onclick="goToConsultationSheet()" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded-xl shadow-sm"><i class="fa-solid fa-plus"></i> Add / Upload Records</button>
-            </div>
-        </div>
-
-        <!-- KPI -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="exec-card border-l-4 border-l-blue-600">
-                <span class="text-[10px] font-black tracking-wider text-slate-500 uppercase block mb-1">Total Sessions</span>
-                <span id="kpi-sessions" class="text-2xl font-black text-slate-900">-</span>
-            </div>
-            <div class="exec-card border-l-4 border-l-indigo-600">
-                <span class="text-[10px] font-black tracking-wider text-slate-500 uppercase block mb-1">Students Counseled</span>
-                <span id="kpi-students" class="text-2xl font-black text-slate-900">-</span>
-            </div>
-            <div class="exec-card border-l-4 border-l-amber-500">
-                <span class="text-[10px] font-black tracking-wider text-slate-500 uppercase block mb-1">Average Rating</span>
-                <span id="kpi-avg" class="text-2xl font-black text-slate-900">-</span>
-            </div>
-            <div class="exec-card border-l-4 border-l-emerald-500">
-                <span class="text-[10px] font-black tracking-wider text-slate-500 uppercase block mb-1">4–5 Star Ratio</span>
-                <span id="kpi-high" class="text-2xl font-black text-slate-900">-</span>
-            </div>
-        </div>
-
-        <!-- STUDENTS + DETAIL -->
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-            <div class="lg:col-span-5 exec-card space-y-3">
-                <div class="flex justify-between items-center border-b border-slate-200 pb-2">
-                    <h3 class="text-[14px] font-black text-slate-900">Students</h3>
-                    <span id="student-count-badge" class="bg-blue-600 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black">0</span>
-                </div>
-                <div id="student-list" class="space-y-1.5 max-h-[520px] overflow-y-auto pr-1"></div>
+                <h3 class="text-[14px] font-black text-slate-500 uppercase tracking-wider mb-3">Categories</h3>
+                <div id="category-tabs" class="flex flex-wrap gap-2"></div>
             </div>
 
-            <div class="lg:col-span-7 exec-card space-y-3" id="student-detail"></div>
-        </div>
+            <div class="flex justify-between items-end">
+                <span id="list-caption" class="text-[15px] font-bold text-slate-600">Grouped by student</span>
+                <span id="student-count" class="text-[16px] font-black text-blue-600">0 students</span>
+            </div>
 
-        <!-- RECENT SESSIONS -->
-        <div class="exec-card space-y-3">
-            <div class="flex justify-between items-center border-b border-slate-200 pb-2">
-                <h3 class="text-[14px] font-black text-slate-900">All Sessions</h3>
-                <span class="text-[10px] font-bold text-slate-400">Newest first · click a row to open the student</span>
-            </div>
-            <div class="overflow-x-auto border border-slate-200 rounded-xl max-h-[380px]">
-                <table class="w-full text-left text-[10px] text-slate-700">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] sticky top-0 border-b border-slate-200 font-black">
-                        <tr><th class="p-3">Date</th><th class="p-3">Student</th><th class="p-3">uMail</th><th class="p-3">Counselor</th><th class="p-3">Topic</th><th class="p-3">Rating</th><th class="p-3">Review</th></tr>
-                    </thead>
-                    <tbody id="session-table-body" class="divide-y divide-slate-200 bg-white font-medium"></tbody>
-                </table>
-            </div>
-        </div>
+            <div id="student-list" class="space-y-3 max-h-[640px] overflow-y-auto pr-1"></div>
+
+            <div id="student-detail" class="border border-slate-200 rounded-3xl p-5 md:p-7 min-h-[240px] scroll-mt-6"></div>
+        </section>
     </main>
+
+    <!-- ADD RECORD -->
+    <div id="add-row-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="consult-form bg-white border border-slate-200 rounded-3xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-200 pb-3">
+                <h3 class="font-black text-slate-900 text-[18px] flex items-center gap-2"><i class="fa-solid fa-plus-circle text-emerald-600"></i> Add Consultation Record</h3>
+                <button onclick="closeAddRowModal()" class="text-slate-400 hover:text-slate-800 font-black text-2xl">&times;</button>
+            </div>
+            <form id="add-row-form" onsubmit="submitNewRecord(event)" class="space-y-3">
+                <div id="add-row-inputs" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1"></div>
+                <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
+                    <button type="button" onclick="closeAddRowModal()" class="consult-btn bg-slate-100 text-slate-700 hover:bg-slate-200">Cancel</button>
+                    <button type="submit" class="consult-btn bg-emerald-600 hover:bg-emerald-500 text-white">Save Record</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script src="js/data/dbState.js"></script>
     <script src="js/common/utils.js"></script>
+    <script src="js/common/modal.js"></script>
     <script src="js/data/consultation.js"></script>
     <script src="js/consultation/consultationPage.js"></script>
 </body>
