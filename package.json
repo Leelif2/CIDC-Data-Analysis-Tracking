@@ -1,0 +1,8 @@
+{
+  "name": "cidc-dashboard",
+  "private": true,
+  "description": "CIDC Dashboard static site with a staff login gate (middleware.js)",
+  "dependencies": {
+    "@vercel/functions": "^3.9.9"
+  }
+}

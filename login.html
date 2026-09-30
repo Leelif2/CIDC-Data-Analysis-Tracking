@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>CIDC - Staff Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f1f5f9; color: #0f172a; -webkit-font-smoothing: antialiased;
+        }
+        .card { width: 100%; max-width: 420px; background: #fff; border: 1px solid #e2e8f0; border-radius: 24px; padding: 36px 32px; box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08); }
+        .logo { display: block; height: 44px; margin: 0 auto 24px; }
+        h1 { font-size: 24px; font-weight: 800; margin: 0 0 6px; text-align: center; }
+        .sub { font-size: 15px; color: #64748b; text-align: center; margin: 0 0 28px; }
+        label { display: block; font-size: 14px; font-weight: 700; color: #334155; margin-bottom: 6px; }
+        input { width: 100%; font: inherit; font-size: 16px; padding: 13px 14px; border: 1px solid #cbd5e1; border-radius: 12px; margin-bottom: 18px; background: #f8fafc; }
+        input:focus { outline: none; border-color: #2563eb; background: #fff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
+        .pw { position: relative; }
+        .pw input { padding-right: 64px; }
+        .pw button { position: absolute; right: 8px; top: 8px; font: inherit; font-size: 13px; font-weight: 700; color: #475569; background: #e2e8f0; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+        .submit { width: 100%; font: inherit; font-size: 16px; font-weight: 800; color: #fff; background: #2563eb; border: 0; border-radius: 12px; padding: 14px; cursor: pointer; }
+        .submit:hover { background: #1d4ed8; }
+        .submit:disabled { background: #93c5fd; cursor: wait; }
+        .msg { font-size: 14px; font-weight: 600; border-radius: 12px; padding: 12px 14px; margin-bottom: 20px; display: none; }
+        .msg.error { display: block; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .msg.info { display: block; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+        .foot { font-size: 13px; color: #94a3b8; text-align: center; margin-top: 22px; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <img class="logo" src="/assets/cidc-logo.png" alt="Career &amp; Internship Development Center — Asia Campus, The University of Utah">
+        <h1>Staff Sign In</h1>
+        <p class="sub">CIDC Dashboard &amp; Consultation Records</p>
+
+        <div id="msg" class="msg" role="alert"></div>
+
+        <form id="login-form" method="POST" action="/auth/login" autocomplete="on">
+            <input type="hidden" name="next" id="next">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required autocomplete="username" placeholder="name@utah.edu" autofocus>
+            <label for="password">Password</label>
+            <div class="pw">
+                <input type="password" id="password" name="password" required autocomplete="current-password">
+                <button type="button" id="toggle" aria-label="Show password">Show</button>
+            </div>
+            <button type="submit" class="submit" id="submit">Sign In</button>
+        </form>
+
+        <p class="foot">For CIDC staff only. Forgot your password or need access?<br>Contact the dashboard administrator.</p>
+    </main>
+
+    <script>
+        const params = new URLSearchParams(location.search);
+        document.getElementById('next').value = params.get('next') || '/';
+        const msg = document.getElementById('msg');
+        const messages = {
+            invalid: ['error', 'Incorrect email or password.'],
+            config: ['error', 'Sign-in is not set up yet. The administrator needs to add STAFF_ACCOUNTS and SESSION_SECRET in Vercel.'],
+            signedout: ['info', 'You have been signed out.']
+        };
+        const key = params.get('error') || (params.get('signedout') ? 'signedout' : null);
+        if (messages[key]) { msg.className = `msg ${messages[key][0]}`; msg.textContent = messages[key][1]; }
+
+        const pw = document.getElementById('password');
+        document.getElementById('toggle').addEventListener('click', e => {
+            const show = pw.type === 'password';
+            pw.type = show ? 'text' : 'password';
+            e.target.textContent = show ? 'Hide' : 'Show';
+        });
+        document.getElementById('login-form').addEventListener('submit', () => {
+            const btn = document.getElementById('submit');
+            btn.disabled = true; btn.textContent = 'Signing in…';
+        });
+    </script>
+</body>
+</html>

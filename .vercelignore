@@ -1,2 +1,3 @@
 # Setup files that should not be served on the public site
 supabase/
+tools/
