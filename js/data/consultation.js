@@ -1,12 +1,13 @@
 // 상담 기록(Consultation 시트) 표준 형식 & 집계
-// 한 행 = 상담 1건: { sessionDate, student, umail, counselor, category, topic, rating, review }
+// 한 행 = 상담 1건: { sessionDate, student, umail, major, counselor, category, topic, rating, review }
 // 학생 구분은 uMail 기준 (동명이인 대비). uMail이 없는 기록만 이름으로 묶음
-const CONSULT_FIELDS = ['sessionDate', 'student', 'umail', 'counselor', 'category', 'topic', 'rating', 'review'];
+const CONSULT_FIELDS = ['sessionDate', 'student', 'umail', 'major', 'counselor', 'category', 'topic', 'rating', 'review'];
 
 const CONSULT_FIELD_LABELS = {
     sessionDate: 'Session Date',
     student: 'Student',
     umail: 'uMail',
+    major: 'Major',
     counselor: 'Counselor',
     category: 'Category',
     topic: 'Topic',
@@ -53,6 +54,7 @@ const CONSULT_HEADER_ALIASES = {
     sessionDate: ['sessiondate', 'date', 'consultationdate', 'timestamp', '상담일', '상담일자', '날짜', '일자'],
     student: ['student', 'studentname', 'name', 'fullname', '학생', '학생명', '이름', '성명'],
     umail: ['umail', 'uemail', 'email', 'studentemail', 'studentumail', 'emailaddress', 'unid', 'uid', '이메일'],
+    major: ['major', 'studentmajor', 'program', 'degree', 'degreeprogram', 'fieldofstudy', '전공', '학과'],
     counselor: ['counselor', 'counsellor', 'advisor', 'consultant', 'staff', '상담사', '상담자', '담당자'],
     category: ['category', 'type', 'consultationtype', 'sessiontype', '카테고리', '분류', '유형'],
     topic: ['topic', 'subject', 'purpose', 'reason', '주제', '상담주제', '목적'],
@@ -68,6 +70,7 @@ const CONSULT_HEADER_KEYWORDS = [
     ['rating', /rating|score|satisf|star|만족|평점|별점/],
     ['topic', /topic|subject|purpose|reason|주제|목적/],
     ['review', /review|feedback|comment|note|memo|summary|후기|메모|의견|내용/],
+    ['major', /major|fieldofstudy|전공|학과/],
     ['student', /student|name|학생|이름|성명/]
 ];
 
@@ -171,6 +174,11 @@ function normalizeConsultationData(rows) {
 function normalizeStoredRecord(raw) {
     const identity = {};
     Object.keys(raw).forEach(k => { if (CONSULT_FIELDS.includes(k)) identity[k] = k; });
+    // Major 칸이 생기기 전에 저장된 기록: 'Major'·'전공' 같은 추가 열을 major로 읽음
+    if (!raw.major) {
+        const majorKey = Object.keys(raw).find(k => k !== 'major' && CONSULT_HEADER_LOOKUP[normalizeHeader(k)] === 'major');
+        if (majorKey) { delete identity.major; identity[majorKey] = 'major'; }
+    }
     return normalizeConsultationRecord(raw, identity);
 }
 
@@ -183,7 +191,7 @@ const looksLikeNotes = s => {
     const t = String(s || '').trim();
     return t.length > 30 || (t.split(/\s+/).length > 4 && !NAME_LIKE.test(t));
 };
-const MAPPABLE_FIELDS = ['student', 'umail', 'sessionDate', 'counselor', 'category', 'topic', 'rating', 'review'];
+const MAPPABLE_FIELDS = ['student', 'umail', 'major', 'sessionDate', 'counselor', 'category', 'topic', 'rating', 'review'];
 
 function profileColumn(values) {
     const vals = values.filter(v => v !== '' && v !== null && v !== undefined).slice(0, 300);
@@ -364,7 +372,7 @@ function getConsultationRecords() {
 // 실제 기록 입력용 엑셀 양식 (헤더 + 예시 1행)
 function downloadConsultationTemplate() {
     const rows = [{
-        'Session Date': '2026-03-15', 'Student': 'Jane Doe', 'uMail': 'u1234567@umail.utah.edu', 'Counselor': 'Dr. Robert Carter', 'Category': 'OPT / Visa',
+        'Session Date': '2026-03-15', 'Student': 'Jane Doe', 'uMail': 'u1234567@umail.utah.edu', 'Major': 'Computer Science', 'Counselor': 'Dr. Robert Carter', 'Category': 'OPT / Visa',
         'Topic': 'OPT Filing & Resume Review', 'Rating': 5, 'Review': 'The session made the OPT application process clear.'
     }];
     const wb = XLSX.utils.book_new();

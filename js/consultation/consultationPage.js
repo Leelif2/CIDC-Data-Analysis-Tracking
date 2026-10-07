@@ -36,6 +36,12 @@ function umailBadgeHtml(umail) {
     return `<span class="text-[14px] font-semibold text-blue-700"><i class="fa-regular fa-envelope mr-1.5 text-blue-400"></i>${escapeHtml(umail)}</span>${warn}`;
 }
 
+function majorBadgeHtml(major) {
+    return major
+        ? `<span class="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-lg text-[14px] font-bold"><i class="fa-solid fa-graduation-cap text-[12px]"></i>${escapeHtml(major)}</span>`
+        : '<span class="inline-flex items-center gap-1.5 bg-slate-50 text-slate-400 border border-slate-200 px-2.5 py-0.5 rounded-lg text-[13px] font-bold"><i class="fa-solid fa-graduation-cap text-[12px]"></i>No major</span>';
+}
+
 function duplicateBadgeHtml(name) {
     return duplicateNames.has(nameKey(name))
         ? ' <span class="inline-flex items-center gap-1 align-middle bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-lg text-[13px] font-black" title="Another student entry has the same name"><i class="fa-solid fa-clone"></i> Duplicate</span>'
@@ -61,6 +67,8 @@ function groupByStudent(records) {
         const names = [...new Set(g.sessions.map(x => String(x.student || '').trim()).filter(Boolean))];
         g.name = names[0] || g.umail || 'Unknown student';
         g.aliases = names.slice(1);
+        // 전공: 가장 최근 기록에 적힌 값
+        g.major = String(g.sessions.find(x => String(x.major || '').trim())?.major || '').trim();
         // 이름 칸에 메모 문장이 들어 있으면 이름 대신 'Name missing'으로 보여주고 문장은 내용 줄에 표시
         g.nameMissing = looksLikeNotes(g.name);
         if (g.nameMissing) { g.misplacedNote = g.name; g.name = 'Name missing'; }
@@ -104,7 +112,7 @@ function renderConsultationPage() {
     const searched = all.filter(r => {
         if (counselor !== 'All' && r.counselor !== counselor) return false;
         if (!query) return true;
-        return [r.student, r.umail, r.topic, r.review, r.counselor, getConsultCategory(r).label].some(v => String(v || '').toLowerCase().includes(query));
+        return [r.student, r.umail, r.major, r.topic, r.review, r.counselor, getConsultCategory(r).label].some(v => String(v || '').toLowerCase().includes(query));
     });
 
     const categoryGroups = groupByCategory(searched);
@@ -118,7 +126,23 @@ function renderConsultationPage() {
     if (editingSessionIdx === null) renderStudentDetail(all);
 }
 
+// 지금 화면의 기록이 어느 파일에서 왔는지 표시
+function renderSourceInfo() {
+    const box = document.getElementById('consult-source');
+    if (!box) return;
+    const src = window.dbState.consultationSource;
+    if (!src) {
+        box.innerHTML = '<i class="fa-solid fa-circle-info mr-2 text-amber-500"></i>These records are from an older file or sample data. Click <b>Upload Latest File</b> to replace them with the latest version.';
+        box.className = 'bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-2xl text-[14px] font-semibold';
+        return;
+    }
+    const when = new Date(src.uploadedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    box.innerHTML = `<i class="fa-solid fa-file-excel mr-2 text-emerald-600"></i>Current file: <b>${escapeHtml(src.fileName || 'Uploaded file')}</b> · updated ${escapeHtml(when)}${src.merged ? ' (added to earlier records)' : ''}`;
+    box.className = 'bg-slate-50 border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl text-[14px] font-semibold';
+}
+
 function renderSummary(all) {
+    renderSourceInfo();
     // uMail이 있으면 uMail 수, 없으면 이름 수로 셈
     const students = new Set(all.map(r => (r.umail ? 'u:' + r.umail : 'n:' + nameKey(r.student))).filter(k => k !== 'n:'));
     const latest = all.map(r => r.sessionDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().pop();
@@ -158,7 +182,7 @@ function renderStudentList(students, categoryLabel) {
             <div class="flex justify-between items-start gap-3">
                 <div class="min-w-0 space-y-1">
                     <div class="text-[22px] font-black leading-tight ${s.nameMissing ? 'text-slate-400 italic' : 'text-slate-900'}">${escapeHtml(s.name)}${s.nameMissing ? '' : duplicateBadgeHtml(s.name)}</div>
-                    <div>${umailBadgeHtml(s.umail)}</div>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">${majorBadgeHtml(s.major)}${umailBadgeHtml(s.umail)}</div>
                 </div>
                 <span class="shrink-0 bg-blue-50 text-blue-700 px-3.5 py-1.5 rounded-full text-[14px] font-black">${s.sessions.length} session${s.sessions.length === 1 ? '' : 's'}</span>
             </div>
@@ -195,7 +219,7 @@ function renderStudentDetail(all) {
                 <div class="w-14 h-14 shrink-0 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center text-[18px] font-black">${escapeHtml(initials)}</div>
                 <div class="min-w-0 space-y-1">
                     <h3 class="text-[24px] font-black text-slate-900 leading-tight">${escapeHtml(student.name)}${duplicateBadgeHtml(student.name)}</h3>
-                    <div>${umailBadgeHtml(student.umail)}</div>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">${majorBadgeHtml(student.major)}${umailBadgeHtml(student.umail)}</div>
                     ${student.aliases.length ? `<p class="text-[14px] text-amber-700 font-bold">Also recorded as: ${escapeHtml(student.aliases.join(', '))}</p>` : ''}
                 </div>
             </div>
@@ -214,7 +238,7 @@ function renderStudentDetail(all) {
         ${counselors.length ? `<p class="text-[15px] text-slate-600 font-medium mt-4"><i class="fa-solid fa-user-tie mr-2 text-slate-400"></i>Counselor${counselors.length > 1 ? 's' : ''}: <b class="text-slate-800">${escapeHtml(counselors.join(', '))}</b></p>` : ''}
 
         <div class="mt-6 space-y-6">
-            ${editingSessionIdx === 'new' ? `<div><h4 class="text-[15px] font-black text-emerald-700 mb-3"><i class="fa-solid fa-plus-circle mr-2"></i>New Session</h4>${sessionFormHtml({ student: student.name, umail: student.umail, sessionDate: toIsoDate(new Date()), counselor: student.last.counselor }, true)}</div>` : ''}
+            ${editingSessionIdx === 'new' ? `<div><h4 class="text-[15px] font-black text-emerald-700 mb-3"><i class="fa-solid fa-plus-circle mr-2"></i>New Session</h4>${sessionFormHtml({ student: student.name, umail: student.umail, major: student.major, sessionDate: toIsoDate(new Date()), counselor: student.last.counselor }, true)}</div>` : ''}
             ${groupByCategory(sessions).map(g => `
                 <div>
                     <div class="flex items-center gap-2 mb-3">
@@ -267,6 +291,7 @@ function sessionFormHtml(s, isNew) {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 ${field('Student Name', input('student', s.student, 'required'))}
                 ${field('uMail', input('umail', s.umail, 'type="email" required pattern="[uU][0-9]{7}@umail\\.utah\\.edu" placeholder="u1234567@umail.utah.edu" title="Format: u1234567@umail.utah.edu"'))}
+                ${field('Major', input('major', s.major, 'placeholder="e.g. Computer Science"'))}
                 ${field('Session Date', input('sessionDate', s.sessionDate, 'type="date" required'))}
                 ${field('Counselor', input('counselor', s.counselor))}
                 ${field('Category', `<select name="category" class="session-input">${categoryOptions.join('')}</select>`)}
@@ -362,7 +387,7 @@ function showConsultToast(message) {
 let mapper = null; // { mode: 'import' | 'fix', title, rawRows, headers, labels, fieldMap }
 
 const MAPPER_FIELDS = [
-    ['student', 'Student Name', true], ['umail', 'uMail', true], ['sessionDate', 'Session Date', false],
+    ['student', 'Student Name', true], ['umail', 'uMail', true], ['major', 'Major', false], ['sessionDate', 'Session Date', false],
     ['counselor', 'Counselor', false], ['category', 'Category', false], ['topic', 'Topic', false],
     ['rating', 'Rating', false], ['review', 'Notes / Review', false]
 ];
@@ -386,7 +411,7 @@ function handleConsultUpload(evt) {
                 [{ label: 'OK', style: 'bg-blue-600 text-white', action: 'closeImportModal()' }]);
             return;
         }
-        openColumnMapper({ mode: 'import', title: `Import "${file.name}"`, rawRows: parsed.rawRows, headers: parsed.headers, labels: {}, fieldMap: parsed.fieldMap });
+        openColumnMapper({ mode: 'import', title: `Update with "${file.name}"`, fileName: file.name, rawRows: parsed.rawRows, headers: parsed.headers, labels: {}, fieldMap: parsed.fieldMap });
     };
     reader.readAsArrayBuffer(file);
 }
@@ -443,6 +468,7 @@ function renderColumnMapper() {
         <tr class="border-t border-slate-200">
             <td class="p-2 font-bold text-slate-900">${escapeHtml(r.student || '—')}</td>
             <td class="p-2 ${r.umail ? 'text-blue-700' : 'text-amber-700 font-bold'}">${escapeHtml(r.umail || 'No uMail')}</td>
+            <td class="p-2">${escapeHtml(r.major || '')}</td>
             <td class="p-2 whitespace-nowrap">${escapeHtml(r.sessionDate ? formatDate(r.sessionDate) : 'No date')}</td>
             <td class="p-2">${escapeHtml(r.counselor || '')}</td>
             <td class="p-2">${escapeHtml(getConsultCategory(r).label)}</td>
@@ -451,8 +477,11 @@ function renderColumnMapper() {
 
     let summary;
     if (m.mode === 'import') {
-        const { added, updated } = mergeConsultationRecords(window.dbState.consultationData, rows);
-        summary = `<b>${rows.length}</b> records read · <b class="text-emerald-700">${added} new</b> · <b class="text-blue-700">${updated} already here</b> (updated, not duplicated)`;
+        // 최신 파일이 기존 기록 전체를 대체 (파일 안의 중복은 하나로)
+        const fresh = mergeConsultationRecords([], rows).records.length;
+        const current = window.dbState.consultationData.length;
+        summary = `<b>${fresh}</b> records in this file will become the current list.`
+            + (current ? ` The <b class="text-rose-700">${current} records from the previous file</b> will be removed.` : '');
     } else {
         summary = `<b>${rows.length}</b> records will be rebuilt with these columns. Nothing is deleted — columns you don't pick are kept as extra details.`;
     }
@@ -470,7 +499,7 @@ function renderColumnMapper() {
             <p class="text-[15px]">${summary}</p>
             ${warns ? `<p class="text-[14px] font-semibold text-amber-700"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${warns}</p>` : ''}
             <div class="overflow-x-auto"><table class="w-full text-left text-[13px]">
-                <thead class="text-slate-500 font-black"><tr><th class="p-2">Name</th><th class="p-2">uMail</th><th class="p-2">Date</th><th class="p-2">Counselor</th><th class="p-2">Category</th><th class="p-2">Topic / Notes</th></tr></thead>
+                <thead class="text-slate-500 font-black"><tr><th class="p-2">Name</th><th class="p-2">uMail</th><th class="p-2">Major</th><th class="p-2">Date</th><th class="p-2">Counselor</th><th class="p-2">Category</th><th class="p-2">Topic / Notes</th></tr></thead>
                 <tbody>${previewRows}</tbody>
             </table></div>
             <p class="text-[13px] text-slate-400">Preview of the first ${Math.min(6, rows.length)} records</p>
@@ -479,8 +508,8 @@ function renderColumnMapper() {
     const current = window.dbState.consultationData.length;
     const actions = [{ label: 'Cancel', style: 'bg-white text-slate-700 border border-slate-300', action: 'closeImportModal()' }];
     if (hasKey && m.mode === 'import') {
-        if (current) actions.push({ label: 'Replace all', style: 'bg-white text-rose-700 border border-rose-300', action: "applyColumnMapper('replace')" });
-        actions.push({ label: current ? 'Add to existing' : 'Import', style: 'bg-blue-600 text-white', action: "applyColumnMapper('merge')" });
+        if (current) actions.push({ label: 'Keep old records and add', style: 'bg-white text-slate-600 border border-slate-300', action: "applyColumnMapper('merge')" });
+        actions.push({ label: 'Update to this file', style: 'bg-blue-600 text-white', action: "applyColumnMapper('replace')" });
     }
     if (hasKey && m.mode === 'fix') actions.push({ label: `Apply to ${rows.length} records`, style: 'bg-blue-600 text-white', action: "applyColumnMapper('fix')" });
     document.getElementById('import-actions').innerHTML = actions
@@ -493,15 +522,18 @@ function applyColumnMapper(mode) {
     const current = window.dbState.consultationData.length;
     let message;
     if (mode === 'replace') {
-        if (!confirm(`Delete all ${current} current records and keep only the ${rows.length} from this file?`)) return;
         window.dbState.consultationData = mergeConsultationRecords([], rows).records;
-        message = `Replaced all records with ${window.dbState.consultationData.length} from the file.`;
+        window.dbState.consultationSource = { fileName: mapper.fileName, uploadedAt: new Date().toISOString(), count: window.dbState.consultationData.length };
+        // 이전 파일 기준의 자동 복구 백업은 더 이상 의미가 없으므로 삭제 (되돌리기로 옛 기록이 돌아오지 않게)
+        try { localStorage.removeItem(AUTOFIX_BACKUP_KEY); } catch (e) {}
+        message = `Updated to "${mapper.fileName}": ${window.dbState.consultationData.length} records${current ? ` (previous ${current} removed)` : ''}.`;
     } else if (mode === 'fix') {
         window.dbState.consultationData = rows;
         message = `Updated ${rows.length} records with the new columns.`;
     } else {
         const result = mergeConsultationRecords(window.dbState.consultationData, rows);
         window.dbState.consultationData = result.records;
+        window.dbState.consultationSource = { fileName: mapper.fileName, uploadedAt: new Date().toISOString(), count: result.records.length, merged: true };
         message = `Added ${result.added} new session(s)${result.updated ? ` and updated ${result.updated} existing` : ''}.`;
     }
     window.saveStateToStorage();

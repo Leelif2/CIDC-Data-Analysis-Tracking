@@ -63,7 +63,7 @@
                 </div>
                 <div class="flex flex-wrap gap-3">
                     <label class="consult-btn bg-blue-600 hover:bg-blue-500 text-white cursor-pointer">
-                        <i class="fa-solid fa-upload"></i> Upload File
+                        <i class="fa-solid fa-upload"></i> Upload Latest File
                         <input type="file" accept=".xlsx, .xls, .csv" onchange="handleConsultUpload(event)" class="hidden">
                     </label>
                     <button onclick="openConsultRecordForm()" class="consult-btn bg-emerald-600 hover:bg-emerald-500 text-white"><i class="fa-solid fa-plus"></i> Add Record</button>
@@ -71,6 +71,7 @@
                     <button onclick="openFixColumns()" class="consult-btn bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300" title="Re-match columns (name, uMail, date…) for records already loaded"><i class="fa-solid fa-table-columns"></i> Fix Columns</button>
                     <button onclick="downloadConsultationTemplate()" class="consult-btn bg-white hover:bg-slate-50 text-slate-500 border border-dashed border-slate-300"><i class="fa-solid fa-file-excel"></i> Template</button>
                 </div>
+                <div id="consult-source"></div>
                 <div id="consult-toast" class="hidden bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl text-[14px] font-bold"></div>
             </div>
 
@@ -79,7 +80,7 @@
             <div class="flex flex-col md:flex-row gap-3">
                 <div class="relative flex-grow">
                     <i class="fa-solid fa-magnifying-glass absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]"></i>
-                    <input type="text" id="consult-search" oninput="renderConsultationPage()" placeholder="Search by name, uMail, topic or notes" class="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-[16px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <input type="text" id="consult-search" oninput="renderConsultationPage()" placeholder="Search by name, uMail, major, topic or notes" class="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-[16px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <select id="filter-counselor" onchange="renderConsultationPage()" class="md:w-64 px-5 py-4 bg-white border border-slate-200 rounded-2xl text-[16px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
             </div>
