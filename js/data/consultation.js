@@ -105,9 +105,16 @@ const DATE_LIKE = /\d{1,4}\s*[\/.\-]\s*\d{1,2}\s*[\/.\-]\s*\d{1,4}|\b(jan|feb|ma
 function toIsoDate(value) {
     if (value === undefined || value === null || value === '') return '';
     let d = null;
-    if (value instanceof Date) d = value;
-    else if (typeof value === 'number' && value > 20000 && value < 80000) d = new Date(Math.round((value - 25569) * 86400000));
-    else {
+    if (value instanceof Date) {
+        d = value;
+        // 엑셀 라이브러리가 일부 시간대(한국 등)에서 날짜를 몇 초 앞당겨 읽음: 5/17 00:00 → 5/16 23:59:08
+        // 자정 직전 23:59:xx(초가 있는 값)는 이 오차로 보고 다음 날로 바로잡음
+        if (d.getHours() === 23 && d.getMinutes() === 59 && (d.getSeconds() > 0 || d.getMilliseconds() > 0)) d = new Date(d.getTime() + 60000);
+    } else if (typeof value === 'number' && value > 20000 && value < 80000) {
+        // 엑셀 날짜 일련번호: UTC로 계산했으니 UTC로 읽어야 시간대와 관계없이 같은 날짜 (미국 시간대에서 하루 밀리는 문제)
+        const u = new Date(Math.round((value - 25569) * 86400000));
+        return `${u.getUTCFullYear()}-${String(u.getUTCMonth() + 1).padStart(2, '0')}-${String(u.getUTCDate()).padStart(2, '0')}`;
+    } else {
         // 2026-09-08, 2026.9.8, 2026/9/8, 2026. 9. 8., 2026년 9월 8일
         const m = /^(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(String(value).trim());
         if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
