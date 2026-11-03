@@ -40,21 +40,93 @@
 
     <main class="flex-grow w-full max-w-[1400px] mx-auto space-y-4">
 
-        <!-- TITLE + DATA SOURCE -->
-        <div class="pt-1">
-            <h2 class="text-[26px] font-black text-slate-900 leading-tight">CIDC Consultation Dashboard</h2>
-            <p class="text-[15px] text-slate-500 font-medium">Who comes to CIDC, why, and how it's changing — calculated from the uploaded consultation records.</p>
+        <!-- TITLE -->
+        <div class="flex flex-wrap items-end justify-between gap-3 pt-1">
+            <div>
+                <h2 class="text-[26px] font-black text-slate-900 leading-tight">CIDC Dashboard</h2>
+                <p class="text-[15px] text-slate-500 font-medium">Every CIDC event and every consultation at a glance.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-[14px] font-bold">
+                <a href="#events" class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-700"><i class="fa-solid fa-calendar-days mr-1.5"></i>Events</a>
+                <a href="#consultations" class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-700"><i class="fa-solid fa-comments mr-1.5"></i>Consultations</a>
+                <a href="dashboard-classic.html" class="px-3.5 py-2 rounded-xl text-slate-500 hover:text-blue-700" title="The previous dashboard layout"><i class="fa-solid fa-clock-rotate-left mr-1.5"></i>Classic dashboard</a>
+            </div>
         </div>
-        <div id="dash-source"></div>
 
-        <!-- FILTERS (한 줄) -->
+        <!-- FILTERS (한 줄, 행사·상담 공통 / 상담사는 상담에만) -->
         <div class="flex flex-wrap items-center gap-2">
             <select id="f-year" class="dash-select" onchange="setFilter('year', this.value)" aria-label="Year"></select>
             <select id="f-term" class="dash-select" onchange="setFilter('term', this.value)" aria-label="Term"></select>
-            <select id="f-counselor" class="dash-select" onchange="setFilter('counselor', this.value)" aria-label="Counselor"></select>
+            <select id="f-counselor" class="dash-select" onchange="setFilter('counselor', this.value)" aria-label="Counselor (consultations only)" title="Applies to consultations only"></select>
             <button onclick="resetFilters()" class="text-[14px] font-bold text-slate-600 hover:text-blue-700 px-3 py-2.5"><i class="fa-solid fa-rotate-left mr-1.5"></i>Reset</button>
-            <span class="text-[13px] text-slate-400 ml-auto">Terms: Spring = Jan–May · Summer = Jun–Aug · Fall = Sep–Dec</span>
+            <span class="text-[13px] text-slate-400 ml-auto">Terms: Spring = Jan–May · Summer = Jun–Aug · Fall = Sep–Dec · Counselor filter applies to consultations only</span>
         </div>
+
+        <!-- ================= EVENTS ================= -->
+        <section id="events" class="space-y-4 scroll-mt-4">
+            <div class="flex flex-wrap items-end justify-between gap-3 pt-2">
+                <div>
+                    <h2 class="text-[22px] font-black text-slate-900"><i class="fa-solid fa-calendar-days text-indigo-600 mr-2"></i>CIDC Events</h2>
+                    <p id="e-source" class="text-[14px] text-slate-600 mt-1"></p>
+                </div>
+                <label class="inline-flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-[14px] font-bold px-4 py-2.5 rounded-xl cursor-pointer">
+                    <i class="fa-solid fa-upload"></i> Upload events file
+                    <input type="file" accept=".xlsx, .xls, .csv" onchange="handleEventsUpload(event)" class="hidden">
+                </label>
+            </div>
+            <div id="e-message" class="hidden"></div>
+            <div id="e-kpis" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
+            <div id="e-types" class="flex flex-wrap gap-2" aria-label="Event type"></div>
+
+            <div id="e-empty" class="hidden dash-card text-center py-10">
+                <p class="text-[16px] font-bold text-slate-700">No events match this selection.</p>
+                <p class="text-[14px] text-slate-500 mt-1">Change the year, term or event type above.</p>
+            </div>
+
+            <div id="e-body" class="space-y-4">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <section class="dash-card">
+                        <div class="flex justify-between items-start gap-3">
+                            <div><h2 id="e-period-title">Events per year</h2><p id="e-period-lead" class="dash-lead"></p></div>
+                            <button class="table-btn" data-table-for="e-period" onclick="toggleTable('e-period')"><i class="fa-solid fa-table"></i> Table</button>
+                        </div>
+                        <div class="chart-box"><canvas id="e-period" role="img" aria-label="Number of events over time"></canvas></div>
+                        <div id="e-period-table" class="hidden mt-4"></div>
+                    </section>
+                    <section class="dash-card">
+                        <div class="flex justify-between items-start gap-3">
+                            <div><h2>Events by type</h2><p id="e-type-lead" class="dash-lead"></p></div>
+                            <button class="table-btn" data-table-for="e-type" onclick="toggleTable('e-type')"><i class="fa-solid fa-table"></i> Table</button>
+                        </div>
+                        <div class="chart-box"><canvas id="e-type" role="img" aria-label="Events by type ranked"></canvas></div>
+                        <div id="e-type-table" class="hidden mt-4"></div>
+                    </section>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+                    <section class="dash-card lg:col-span-2">
+                        <div class="flex justify-between items-start gap-3">
+                            <div><h2>Biggest events</h2><p id="e-top-lead" class="dash-lead"></p></div>
+                            <button class="table-btn" data-table-for="e-top" onclick="toggleTable('e-top')"><i class="fa-solid fa-table"></i> Table</button>
+                        </div>
+                        <div class="chart-box"><canvas id="e-top" role="img" aria-label="Events with the most attendees"></canvas></div>
+                        <div id="e-top-table" class="hidden mt-4"></div>
+                    </section>
+                    <section class="dash-card lg:col-span-3">
+                        <h2>All events</h2>
+                        <p class="dash-lead">Newest first. Bars show how many of the people who RSVP'd actually came.</p>
+                        <div id="e-list" class="mt-3 max-h-[720px] overflow-y-auto pr-1 space-y-4"></div>
+                    </section>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= CONSULTATIONS ================= -->
+        <section id="consultations" class="space-y-4 scroll-mt-4 pt-4">
+            <div>
+                <h2 class="text-[22px] font-black text-slate-900"><i class="fa-solid fa-comments text-blue-600 mr-2"></i>Consultations</h2>
+                <p class="text-[14px] text-slate-500 mt-1">Who comes to CIDC for advising, why, and how it's changing — from the records uploaded on Consultation Records.</p>
+            </div>
+            <div id="dash-source"></div>
 
         <div id="dash-empty" class="hidden dash-card text-center py-14">
             <p class="text-[17px] font-bold text-slate-700">No consultations match this selection.</p>
@@ -159,10 +231,15 @@
                 <div id="dash-completeness" class="space-y-2.5 mt-4 max-w-3xl"></div>
             </section>
         </div>
+        </section>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="js/data/dbState.js"></script>
     <script src="js/data/consultation.js"></script>
+    <script src="js/data/events.js"></script>
+    <script src="js/data/cidcEvents.js"></script>
     <script src="js/dashboard/insights.js"></script>
+    <script src="js/dashboard/events.js"></script>
 </body>
 </html>

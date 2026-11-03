@@ -314,7 +314,8 @@ const endLabels = {
     }
 };
 
-function barChart(id, labels, values, { horizontal = false, total = null, height } = {}) {
+// unit: 툴팁의 단위 ('consultation' → '12 consultations'), extra(i): 툴팁에 덧붙일 줄
+function barChart(id, labels, values, { horizontal = false, total = null, height, unit = 'consultation', extra = null, share = true } = {}) {
     const canvas = document.getElementById(id);
     if (!canvas) return;
     if (charts[id]) charts[id].destroy();
@@ -365,7 +366,8 @@ function barChart(id, labels, values, { horizontal = false, total = null, height
                     padding: 10,
                     displayColors: false,
                     callbacks: {
-                        label: c => `${fmtInt(c.raw)} consultation${c.raw === 1 ? '' : 's'}${sum ? ` · ${fmtPct((c.raw / sum) * 100)}` : ''}`
+                        label: c => `${fmtInt(c.raw)} ${unit}${c.raw === 1 ? '' : 's'}${share && sum ? ` · ${fmtPct((c.raw / sum) * 100)}` : ''}`,
+                        afterLabel: c => (extra ? extra(c.dataIndex) || '' : '')
                     }
                 }
             }
@@ -427,7 +429,9 @@ function renderSource(records) {
 }
 
 function renderFilters() {
-    const years = [...new Set(dashRows.map(r => r.year).filter(Boolean))].sort().reverse();
+    // 연도 목록: 상담 기록 + 행사 기록에 있는 연도
+    const eventYears = typeof getEventLog === 'function' ? getEventLog().events.map(e => e.year) : [];
+    const years = [...new Set([...dashRows.map(r => r.year), ...eventYears].filter(Boolean))].sort().reverse();
     const counselors = [...new Set(dashRows.map(r => r.counselor).filter(Boolean))].sort();
     const fill = (id, label, values, current) => {
         const el = document.getElementById(id);
@@ -553,6 +557,8 @@ function renderDashboard(rebuildFilters = true) {
     dashRows = toRows(records);
     renderSource(records);
     if (rebuildFilters) renderFilters();
+    // 행사 섹션은 상담 기록이 없어도 표시 (같은 연도·학기 필터 사용)
+    if (typeof renderEvents === 'function') renderEvents(dashFilters);
     const s = computeInsights(dashRows, dashFilters);
     const empty = document.getElementById('dash-empty');
     const content = document.getElementById('dash-content');
@@ -583,6 +589,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
             document.getElementById('dash-empty').innerHTML = '<p class="text-[15px] text-rose-700 font-bold">Charts could not load (no internet connection to the chart library). Refresh the page to try again.</p>';
             return;
         }
+        // 공유용 주소: dashboard.html?year=2026&term=Spring 처럼 필터를 미리 지정
+        const params = new URLSearchParams(location.search);
+        ['year', 'term', 'counselor'].forEach(k => { if (params.get(k)) dashFilters[k] = params.get(k); });
         renderDashboard();
     });
 }
